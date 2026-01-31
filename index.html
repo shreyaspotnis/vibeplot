@@ -28,7 +28,7 @@
             height: 100%;
             display: block;
         }
-        #stats {
+        #debug-panel {
             position: absolute;
             top: 10px;
             left: 10px;
@@ -39,6 +39,7 @@
             padding: 10px;
             border-radius: 4px;
             pointer-events: none;
+            white-space: pre;
             line-height: 1.6;
         }
         #command-palette {
@@ -97,7 +98,7 @@
 <body>
     <div class="container">
         <canvas id="canvas"></canvas>
-        <div id="stats"></div>
+        <div id="debug-panel"></div>
         <div id="command-palette">
             <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
             <div id="command-list"></div>

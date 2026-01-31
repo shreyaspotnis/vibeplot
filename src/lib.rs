@@ -39,9 +39,9 @@ pub async fn run() {
         .expect("No canvas element")
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .expect("Not a canvas");
-    let stats_element = document
-        .get_element_by_id("stats")
-        .expect("No stats element")
+    let debug_panel = document
+        .get_element_by_id("debug-panel")
+        .expect("No debug panel element")
         .dyn_into::<web_sys::HtmlElement>()
         .expect("Not an HtmlElement");
 
@@ -237,7 +237,7 @@ pub async fn run() {
     // Set up event handlers
     setup_mouse_handlers(&canvas, state.clone());
     setup_wheel_handler(&canvas, state.clone());
-    setup_keyboard_handler(&window, &stats_element);
+    setup_keyboard_handler(&window, &debug_panel);
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
@@ -258,16 +258,27 @@ pub async fn run() {
         let mut state = state.borrow_mut();
         state.time += 0.016; // ~60fps
 
-        // Update stats display
+        // Update debug panel
         let rotation_x_deg = state.rotation_x.to_degrees();
         let rotation_y_deg = state.rotation_y.to_degrees();
-        let stats_text = format!(
-            "Rotation X: {:.1}°\nRotation Y: {:.1}°\nZoom: {:.2}x\nCamera: (0, 0, 3)",
+        let debug_text = format!(
+            "Debug Panel\n\
+             ───────────────────\n\
+             Rotation X: {:.1}°\n\
+             Rotation Y: {:.1}°\n\
+             Zoom: {:.2}x\n\
+             Camera: (0, 0, 3)\n\n\
+             Controls\n\
+             ───────────────────\n\
+             /\tToggle debug panel\n\
+             ⌘⇧P\tCommand palette\n\
+             Drag\tRotate cube\n\
+             Scroll\tZoom in/out",
             rotation_x_deg,
             rotation_y_deg,
             state.scale
         );
-        stats_element.set_inner_text(&stats_text);
+        debug_panel.set_inner_text(&debug_text);
 
         // Create matrices
         // Note: matrices are row-major in Rust but WGSL expects column-major.
@@ -488,12 +499,12 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
     closure.forget();
 }
 
-fn setup_keyboard_handler(window: &web_sys::Window, stats_element: &web_sys::HtmlElement) {
-    let stats_element = stats_element.clone();
+fn setup_keyboard_handler(window: &web_sys::Window, debug_panel: &web_sys::HtmlElement) {
+    let debug_panel = debug_panel.clone();
     let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::KeyboardEvent| {
         if event.key() == "/" {
             event.prevent_default();
-            let style = stats_element.style();
+            let style = debug_panel.style();
             let current_display = style.get_property_value("display").unwrap_or_default();
             if current_display == "none" {
                 style.set_property("display", "block").unwrap();
