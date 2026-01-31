@@ -72,10 +72,11 @@ pub async fn run() {
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
     });
 
-    // Create uniform buffer for triangle offset
-    let offset_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Offset Buffer"),
-        contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 0.0f32]), // vec4 alignment
+    // Create uniform buffer for triangle transform (offset + scale)
+    // Layout: vec4(offset_x, offset_y, scale, padding)
+    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Uniform Buffer"),
+        contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 1.0f32, 0.0f32]),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
 
@@ -98,7 +99,7 @@ pub async fn run() {
         layout: &bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: offset_buffer.as_entire_binding(),
+            resource: uniform_buffer.as_entire_binding(),
         }],
     });
 
@@ -160,10 +161,11 @@ pub async fn run() {
     });
 
     // Shared state for mouse interaction
-    let state = Rc::new(RefCell::new(DragState {
+    let state = Rc::new(RefCell::new(InteractionState {
         is_dragging: false,
         offset_x: 0.0,
         offset_y: 0.0,
+        scale: 1.0,
         drag_start_x: 0.0,
         drag_start_y: 0.0,
         initial_offset_x: 0.0,
@@ -172,13 +174,14 @@ pub async fn run() {
 
     // Set up mouse event handlers
     setup_mouse_handlers(&canvas, state.clone(), width as f32, height as f32);
+    setup_wheel_handler(&canvas, state.clone());
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
     let render_pipeline = Rc::new(render_pipeline);
     let vertex_buffer = Rc::new(vertex_buffer);
     let bind_group = Rc::new(bind_group);
-    let offset_buffer = Rc::new(offset_buffer);
+    let uniform_buffer = Rc::new(uniform_buffer);
 
     let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -187,11 +190,11 @@ pub async fn run() {
     *g.borrow_mut() = Some(Closure::new(move || {
         let state = state.borrow();
 
-        // Update uniform buffer with current offset
+        // Update uniform buffer with current offset and scale
         queue.write_buffer(
-            &offset_buffer,
+            &uniform_buffer,
             0,
-            bytemuck::cast_slice(&[state.offset_x, state.offset_y, 0.0f32, 0.0f32]),
+            bytemuck::cast_slice(&[state.offset_x, state.offset_y, state.scale, 0.0f32]),
         );
 
         // Render
@@ -249,7 +252,7 @@ pub async fn run() {
 
 fn setup_mouse_handlers(
     canvas: &web_sys::HtmlCanvasElement,
-    state: Rc<RefCell<DragState>>,
+    state: Rc<RefCell<InteractionState>>,
     width: f32,
     height: f32,
 ) {
@@ -312,10 +315,40 @@ fn setup_mouse_handlers(
     }
 }
 
-struct DragState {
+fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<InteractionState>>) {
+    let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::WheelEvent| {
+        event.prevent_default();
+
+        let mut state = state.borrow_mut();
+        let delta = event.delta_y() as f32;
+
+        // Zoom factor - smaller values = smoother zoom
+        let zoom_speed = 0.001;
+        let zoom_factor = 1.0 - delta * zoom_speed;
+
+        // Apply zoom with limits (0.1x to 10x)
+        state.scale = (state.scale * zoom_factor).clamp(0.1, 10.0);
+    });
+
+    // Use non-passive listener to allow preventDefault
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_passive(false);
+
+    canvas
+        .add_event_listener_with_callback_and_add_event_listener_options(
+            "wheel",
+            closure.as_ref().unchecked_ref(),
+            &options,
+        )
+        .unwrap();
+    closure.forget();
+}
+
+struct InteractionState {
     is_dragging: bool,
     offset_x: f32,
     offset_y: f32,
+    scale: f32,
     drag_start_x: f32,
     drag_start_y: f32,
     initial_offset_x: f32,

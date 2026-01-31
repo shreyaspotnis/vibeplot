@@ -1,5 +1,7 @@
 struct Uniforms {
-    offset: vec4<f32>,
+    offset: vec2<f32>,
+    scale: f32,
+    _padding: f32,
 }
 
 @group(0) @binding(0)
@@ -19,8 +21,8 @@ struct VertexOutput {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = vec4<f32>(
-        in.position.x + uniforms.offset.x,
-        in.position.y + uniforms.offset.y,
+        in.position.x * uniforms.scale + uniforms.offset.x,
+        in.position.y * uniforms.scale + uniforms.offset.y,
         in.position.z,
         1.0
     );
