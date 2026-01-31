@@ -3,6 +3,30 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
 
+thread_local! {
+    static INTERACTION_STATE: RefCell<Option<Rc<RefCell<InteractionState>>>> = RefCell::new(None);
+}
+
+#[wasm_bindgen]
+pub fn reset_zoom() {
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            state.borrow_mut().scale = 1.0;
+        }
+    });
+}
+
+#[wasm_bindgen]
+pub fn reset_rotation() {
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            let mut s = state.borrow_mut();
+            s.rotation_x = -0.5;
+            s.rotation_y = 0.7;
+        }
+    });
+}
+
 #[wasm_bindgen(start)]
 pub async fn run() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -204,6 +228,11 @@ pub async fn run() {
         initial_rotation_y: 0.0,
         time: 0.0,
     }));
+
+    // Store state in thread_local for access from exported functions
+    INTERACTION_STATE.with(|s| {
+        *s.borrow_mut() = Some(state.clone());
+    });
 
     // Set up event handlers
     setup_mouse_handlers(&canvas, state.clone());

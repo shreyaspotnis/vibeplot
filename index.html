@@ -10,20 +10,23 @@
             padding: 0;
             box-sizing: border-box;
         }
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
             background: #1a1a1a;
         }
         .container {
-            position: relative;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
         }
         canvas {
-            width: 800px;
-            height: 600px;
-            border: 1px solid #333;
+            width: 100%;
+            height: 100%;
+            display: block;
         }
         #stats {
             position: absolute;
@@ -38,15 +41,193 @@
             pointer-events: none;
             line-height: 1.6;
         }
+        #command-palette {
+            display: none;
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 500px;
+            max-width: 90%;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1000;
+            overflow: hidden;
+        }
+        #command-palette.visible {
+            display: block;
+        }
+        #command-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #command-input::placeholder {
+            color: #888;
+        }
+        #command-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .command-item {
+            padding: 10px 16px;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .command-item:hover,
+        .command-item.selected {
+            background: #094771;
+            color: #fff;
+        }
+        .command-item .match {
+            color: #18a3ff;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <canvas id="canvas"></canvas>
         <div id="stats"></div>
+        <div id="command-palette">
+            <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
+            <div id="command-list"></div>
+        </div>
     </div>
     <script type="module">
-        import init from './pkg/webgpu_triangle.js';
+        import init, { reset_zoom, reset_rotation } from './pkg/webgpu_triangle.js';
+
+        const commands = [
+            { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
+            { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
+        ];
+
+        let selectedIndex = 0;
+        let filteredCommands = [...commands];
+
+        function fuzzyMatch(text, query) {
+            const lowerText = text.toLowerCase();
+            const lowerQuery = query.toLowerCase();
+            let textIndex = 0;
+            let matchIndices = [];
+
+            for (let i = 0; i < lowerQuery.length; i++) {
+                const char = lowerQuery[i];
+                const foundIndex = lowerText.indexOf(char, textIndex);
+                if (foundIndex === -1) return null;
+                matchIndices.push(foundIndex);
+                textIndex = foundIndex + 1;
+            }
+            return matchIndices;
+        }
+
+        function highlightMatches(text, matchIndices) {
+            if (!matchIndices) return text;
+            let result = '';
+            let lastIndex = 0;
+            for (const idx of matchIndices) {
+                result += text.slice(lastIndex, idx);
+                result += `<span class="match">${text[idx]}</span>`;
+                lastIndex = idx + 1;
+            }
+            result += text.slice(lastIndex);
+            return result;
+        }
+
+        function renderCommands() {
+            const list = document.getElementById('command-list');
+            list.innerHTML = filteredCommands.map((cmd, i) => {
+                const query = document.getElementById('command-input').value;
+                const matchIndices = fuzzyMatch(cmd.label, query);
+                const highlighted = highlightMatches(cmd.label, matchIndices);
+                return `<div class="command-item${i === selectedIndex ? ' selected' : ''}" data-index="${i}">${highlighted}</div>`;
+            }).join('');
+        }
+
+        function filterCommands(query) {
+            if (!query) {
+                filteredCommands = [...commands];
+            } else {
+                filteredCommands = commands.filter(cmd => fuzzyMatch(cmd.label, query));
+            }
+            selectedIndex = 0;
+            renderCommands();
+        }
+
+        function showPalette() {
+            const palette = document.getElementById('command-palette');
+            const input = document.getElementById('command-input');
+            palette.classList.add('visible');
+            input.value = '';
+            filterCommands('');
+            input.focus();
+        }
+
+        function hidePalette() {
+            const palette = document.getElementById('command-palette');
+            palette.classList.remove('visible');
+        }
+
+        function executeSelected() {
+            if (filteredCommands[selectedIndex]) {
+                filteredCommands[selectedIndex].action();
+                hidePalette();
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            const palette = document.getElementById('command-palette');
+            const isVisible = palette.classList.contains('visible');
+
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+                e.preventDefault();
+                if (isVisible) {
+                    hidePalette();
+                } else {
+                    showPalette();
+                }
+                return;
+            }
+
+            if (!isVisible) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hidePalette();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedIndex = Math.min(selectedIndex + 1, filteredCommands.length - 1);
+                renderCommands();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedIndex = Math.max(selectedIndex - 1, 0);
+                renderCommands();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                executeSelected();
+            }
+        });
+
+        document.getElementById('command-input').addEventListener('input', (e) => {
+            filterCommands(e.target.value);
+        });
+
+        document.getElementById('command-list').addEventListener('click', (e) => {
+            const item = e.target.closest('.command-item');
+            if (item) {
+                selectedIndex = parseInt(item.dataset.index);
+                executeSelected();
+            }
+        });
 
         async function run() {
             if (!navigator.gpu) {
