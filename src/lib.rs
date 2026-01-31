@@ -208,6 +208,7 @@ pub async fn run() {
     // Set up event handlers
     setup_mouse_handlers(&canvas, state.clone());
     setup_wheel_handler(&canvas, state.clone());
+    setup_keyboard_handler(&window, &stats_element);
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
@@ -454,6 +455,26 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
             closure.as_ref().unchecked_ref(),
             &options,
         )
+        .unwrap();
+    closure.forget();
+}
+
+fn setup_keyboard_handler(window: &web_sys::Window, stats_element: &web_sys::HtmlElement) {
+    let stats_element = stats_element.clone();
+    let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::KeyboardEvent| {
+        if event.key() == "/" {
+            event.prevent_default();
+            let style = stats_element.style();
+            let current_display = style.get_property_value("display").unwrap_or_default();
+            if current_display == "none" {
+                style.set_property("display", "block").unwrap();
+            } else {
+                style.set_property("display", "none").unwrap();
+            }
+        }
+    });
+    window
+        .add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref())
         .unwrap();
     closure.forget();
 }
