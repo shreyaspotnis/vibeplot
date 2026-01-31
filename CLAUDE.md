@@ -16,7 +16,7 @@ Prerequisites: Rust with `wasm32-unknown-unknown` target (`rustup target add was
 
 ## Architecture
 
-This is a Rust/WebAssembly project rendering an interactive 3D cube with WebGPU. The canvas fills the entire browser window.
+This is a Rust/WebAssembly project rendering an interactive models with WebGPU. The canvas fills the entire browser window.
 
 ### Key Files
 
