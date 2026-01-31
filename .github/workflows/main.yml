@@ -1,0 +1,27 @@
+name: Deploy WASM App
+on:
+  push:
+    branches: [ main ] # Trigger on every push to main
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk (Common Rust WASM Bundler)
+        run: wget -qO- https://github.com/trunk-rs/trunk/releases/latest/download/trunk-x86_64-unknown-linux-gnu.tar.gz | tar -xzf- && sudo mv trunk /usr/local/bin/
+
+      - name: Build Project
+        run: trunk build --release # This generates the 'dist' folder
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist # The folder where your built files are
+          branch: gh-pages # The branch to host from
