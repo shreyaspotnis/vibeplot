@@ -67,24 +67,41 @@ pub async fn run() {
     };
     surface.configure(&device, &config);
 
+    // Create depth texture
+    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Depth Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth24Plus,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
     });
 
-    // Create uniform buffer for triangle transform (offset + scale)
-    // Layout: vec4(offset_x, offset_y, scale, padding)
-    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    // Uniforms: 4x4 MVP matrix + 4x4 model matrix + vec4 light_dir + vec4 camera_pos
+    let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Uniform Buffer"),
-        contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 1.0f32, 0.0f32]),
+        size: (16 + 16 + 4 + 4) * 4, // 160 bytes
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Bind Group Layout"),
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
@@ -137,7 +154,13 @@ pub async fn run() {
             unclipped_depth: false,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState {
             count: 1,
             mask: !0,
@@ -147,55 +170,79 @@ pub async fn run() {
         cache: None,
     });
 
-    // Triangle vertices with colors
-    let vertices: &[Vertex] = &[
-        Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-        Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-        Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
-    ];
+    // Create cube geometry
+    let (vertices, indices) = create_cube();
 
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
-        contents: bytemuck::cast_slice(vertices),
+        contents: bytemuck::cast_slice(&vertices),
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    // Shared state for mouse interaction
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Index Buffer"),
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+
+    let num_indices = indices.len() as u32;
+
+    // Shared state for interaction
     let state = Rc::new(RefCell::new(InteractionState {
         is_dragging: false,
-        offset_x: 0.0,
-        offset_y: 0.0,
+        rotation_x: -0.5,
+        rotation_y: 0.7,
         scale: 1.0,
         drag_start_x: 0.0,
         drag_start_y: 0.0,
-        initial_offset_x: 0.0,
-        initial_offset_y: 0.0,
+        initial_rotation_x: 0.0,
+        initial_rotation_y: 0.0,
+        time: 0.0,
     }));
 
-    // Set up mouse event handlers
-    setup_mouse_handlers(&canvas, state.clone(), width as f32, height as f32);
+    // Set up event handlers
+    setup_mouse_handlers(&canvas, state.clone());
     setup_wheel_handler(&canvas, state.clone());
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
+    let depth_view = Rc::new(depth_view);
     let render_pipeline = Rc::new(render_pipeline);
     let vertex_buffer = Rc::new(vertex_buffer);
+    let index_buffer = Rc::new(index_buffer);
     let bind_group = Rc::new(bind_group);
     let uniform_buffer = Rc::new(uniform_buffer);
+
+    let aspect = width as f32 / height as f32;
 
     let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
     let g = f.clone();
 
     let window_clone = window.clone();
     *g.borrow_mut() = Some(Closure::new(move || {
-        let state = state.borrow();
+        let mut state = state.borrow_mut();
+        state.time += 0.016; // ~60fps
 
-        // Update uniform buffer with current offset and scale
-        queue.write_buffer(
-            &uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[state.offset_x, state.offset_y, state.scale, 0.0f32]),
-        );
+        // Create matrices
+        // Note: matrices are row-major in Rust but WGSL expects column-major.
+        // The row-by-row serialization effectively transposes, so we reverse multiplication order.
+        let model = mat4_mul(mat4_mul(mat4_scale(state.scale), mat4_rotate_x(state.rotation_x)), mat4_rotate_y(state.rotation_y));
+        let view = mat4_look_at([0.0, 0.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        let proj = mat4_perspective(45.0_f32.to_radians(), aspect, 0.1, 100.0);
+        let mvp = mat4_mul(mat4_mul(model, view), proj);
+
+        // Light direction (world space, pointing from light to origin)
+        let light_dir = normalize([1.0, 1.0, 1.0]);
+        let camera_pos = [0.0f32, 0.0, 3.0];
+
+        // Write uniforms
+        let mut uniform_data = Vec::with_capacity(40);
+        uniform_data.extend_from_slice(&mat4_to_array(mvp));
+        uniform_data.extend_from_slice(&mat4_to_array(model));
+        uniform_data.extend_from_slice(&[light_dir[0], light_dir[1], light_dir[2], 0.0]);
+        uniform_data.extend_from_slice(&[camera_pos[0], camera_pos[1], camera_pos[2], 0.0]);
+
+        queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&uniform_data));
 
         // Render
         let surface = surface.borrow();
@@ -216,13 +263,20 @@ pub async fn run() {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.1,
                             g: 0.1,
-                            b: 0.1,
+                            b: 0.15,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -230,32 +284,81 @@ pub async fn run() {
             render_pass.set_pipeline(&render_pipeline);
             render_pass.set_bind_group(0, Some(&*bind_group), &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..num_indices, 0, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        // Request next frame
+        drop(state);
+
         window_clone
             .request_animation_frame(f.borrow().as_ref().unwrap().as_ref().unchecked_ref())
             .expect("Failed to request animation frame");
     }));
 
-    // Start the render loop
     window
         .request_animation_frame(g.borrow().as_ref().unwrap().as_ref().unchecked_ref())
         .expect("Failed to request animation frame");
 
-    log::info!("Interactive triangle started!");
+    log::info!("Interactive cube started!");
 }
 
-fn setup_mouse_handlers(
-    canvas: &web_sys::HtmlCanvasElement,
-    state: Rc<RefCell<InteractionState>>,
-    width: f32,
-    height: f32,
-) {
+fn create_cube() -> (Vec<Vertex>, Vec<u16>) {
+    // Each face has 4 vertices with the same normal but different positions
+    // Colors: Front=Red, Back=Green, Top=Blue, Bottom=Yellow, Right=Cyan, Left=Magenta
+    let vertices = vec![
+        // Front face (z = 0.5) - Red
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
+
+        // Back face (z = -0.5) - Green
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
+
+        // Top face (y = 0.5) - Blue
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
+
+        // Bottom face (y = -0.5) - Yellow
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
+
+        // Right face (x = 0.5) - Cyan
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
+
+        // Left face (x = -0.5) - Magenta
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
+    ];
+
+    let indices: Vec<u16> = vec![
+        0,  1,  2,  0,  2,  3,  // Front
+        4,  5,  6,  4,  6,  7,  // Back
+        8,  9,  10, 8,  10, 11, // Top
+        12, 13, 14, 12, 14, 15, // Bottom
+        16, 17, 18, 16, 18, 19, // Right
+        20, 21, 22, 20, 22, 23, // Left
+    ];
+
+    (vertices, indices)
+}
+
+fn setup_mouse_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<InteractionState>>) {
     // Mouse down
     {
         let state = state.clone();
@@ -264,8 +367,8 @@ fn setup_mouse_handlers(
             state.is_dragging = true;
             state.drag_start_x = event.offset_x() as f32;
             state.drag_start_y = event.offset_y() as f32;
-            state.initial_offset_x = state.offset_x;
-            state.initial_offset_y = state.offset_y;
+            state.initial_rotation_x = state.rotation_x;
+            state.initial_rotation_y = state.rotation_y;
         });
         canvas
             .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())
@@ -279,10 +382,10 @@ fn setup_mouse_handlers(
         let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
             let mut state = state.borrow_mut();
             if state.is_dragging {
-                let dx = (event.offset_x() as f32 - state.drag_start_x) / width * 2.0;
-                let dy = -(event.offset_y() as f32 - state.drag_start_y) / height * 2.0;
-                state.offset_x = state.initial_offset_x + dx;
-                state.offset_y = state.initial_offset_y + dy;
+                let dx = (event.offset_x() as f32 - state.drag_start_x) * 0.01;
+                let dy = (event.offset_y() as f32 - state.drag_start_y) * 0.01;
+                state.rotation_y = state.initial_rotation_y + dx;
+                state.rotation_x = state.initial_rotation_x + dy;
             }
         });
         canvas
@@ -303,7 +406,7 @@ fn setup_mouse_handlers(
         closure.forget();
     }
 
-    // Mouse leave (stop dragging if mouse leaves canvas)
+    // Mouse leave
     {
         let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
             state.borrow_mut().is_dragging = false;
@@ -321,16 +424,11 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
 
         let mut state = state.borrow_mut();
         let delta = event.delta_y() as f32;
-
-        // Zoom factor - smaller values = smoother zoom
         let zoom_speed = 0.001;
         let zoom_factor = 1.0 - delta * zoom_speed;
-
-        // Apply zoom with limits (0.1x to 10x)
-        state.scale = (state.scale * zoom_factor).clamp(0.1, 10.0);
+        state.scale = (state.scale * zoom_factor).clamp(0.1, 5.0);
     });
 
-    // Use non-passive listener to allow preventDefault
     let options = web_sys::AddEventListenerOptions::new();
     options.set_passive(false);
 
@@ -346,19 +444,21 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
 
 struct InteractionState {
     is_dragging: bool,
-    offset_x: f32,
-    offset_y: f32,
+    rotation_x: f32,
+    rotation_y: f32,
     scale: f32,
     drag_start_x: f32,
     drag_start_y: f32,
-    initial_offset_x: f32,
-    initial_offset_y: f32,
+    initial_rotation_x: f32,
+    initial_rotation_y: f32,
+    time: f32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
     position: [f32; 3],
+    normal: [f32; 3],
     color: [f32; 3],
 }
 
@@ -378,7 +478,124 @@ impl Vertex {
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 2) as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
             ],
         }
     }
+}
+
+// Matrix math utilities
+type Mat4 = [[f32; 4]; 4];
+
+fn mat4_identity() -> Mat4 {
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn mat4_scale(s: f32) -> Mat4 {
+    [
+        [s, 0.0, 0.0, 0.0],
+        [0.0, s, 0.0, 0.0],
+        [0.0, 0.0, s, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn mat4_rotate_x(angle: f32) -> Mat4 {
+    let c = angle.cos();
+    let s = angle.sin();
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, c, s, 0.0],
+        [0.0, -s, c, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn mat4_rotate_y(angle: f32) -> Mat4 {
+    let c = angle.cos();
+    let s = angle.sin();
+    [
+        [c, 0.0, -s, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [s, 0.0, c, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn mat4_perspective(fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+    let f = 1.0 / (fov / 2.0).tan();
+    [
+        [f / aspect, 0.0, 0.0, 0.0],
+        [0.0, f, 0.0, 0.0],
+        [0.0, 0.0, (far + near) / (near - far), -1.0],
+        [0.0, 0.0, (2.0 * far * near) / (near - far), 0.0],
+    ]
+}
+
+fn mat4_look_at(eye: [f32; 3], target: [f32; 3], up: [f32; 3]) -> Mat4 {
+    let f = normalize([
+        target[0] - eye[0],
+        target[1] - eye[1],
+        target[2] - eye[2],
+    ]);
+    let s = normalize(cross(f, up));
+    let u = cross(s, f);
+
+    [
+        [s[0], u[0], -f[0], 0.0],
+        [s[1], u[1], -f[1], 0.0],
+        [s[2], u[2], -f[2], 0.0],
+        [-dot(s, eye), -dot(u, eye), dot(f, eye), 1.0],
+    ]
+}
+
+fn mat4_mul(a: Mat4, b: Mat4) -> Mat4 {
+    let mut result = [[0.0; 4]; 4];
+    for i in 0..4 {
+        for j in 0..4 {
+            for k in 0..4 {
+                result[i][j] += a[i][k] * b[k][j];
+            }
+        }
+    }
+    result
+}
+
+fn mat4_to_array(m: Mat4) -> [f32; 16] {
+    [
+        m[0][0], m[0][1], m[0][2], m[0][3],
+        m[1][0], m[1][1], m[1][2], m[1][3],
+        m[2][0], m[2][1], m[2][2], m[2][3],
+        m[3][0], m[3][1], m[3][2], m[3][3],
+    ]
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 0.0 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        v
+    }
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
