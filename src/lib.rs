@@ -15,6 +15,11 @@ pub async fn run() {
         .expect("No canvas element")
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .expect("Not a canvas");
+    let stats_element = document
+        .get_element_by_id("stats")
+        .expect("No stats element")
+        .dyn_into::<web_sys::HtmlElement>()
+        .expect("Not an HtmlElement");
 
     let width = canvas.client_width() as u32;
     let height = canvas.client_height() as u32;
@@ -222,6 +227,17 @@ pub async fn run() {
     *g.borrow_mut() = Some(Closure::new(move || {
         let mut state = state.borrow_mut();
         state.time += 0.016; // ~60fps
+
+        // Update stats display
+        let rotation_x_deg = state.rotation_x.to_degrees();
+        let rotation_y_deg = state.rotation_y.to_degrees();
+        let stats_text = format!(
+            "Rotation X: {:.1}°\nRotation Y: {:.1}°\nZoom: {:.2}x\nCamera: (0, 0, 3)",
+            rotation_x_deg,
+            rotation_y_deg,
+            state.scale
+        );
+        stats_element.set_inner_text(&stats_text);
 
         // Create matrices
         // Note: matrices are row-major in Rust but WGSL expects column-major.
