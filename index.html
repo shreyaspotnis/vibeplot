@@ -188,7 +188,7 @@
             const palette = document.getElementById('command-palette');
             const isVisible = palette.classList.contains('visible');
 
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
                 e.preventDefault();
                 if (isVisible) {
                     hidePalette();
