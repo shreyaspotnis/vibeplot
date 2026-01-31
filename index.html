@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU Triangle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #1a1a1a;
+        }
+        canvas {
+            width: 800px;
+            height: 600px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script type="module">
+        import init from './pkg/webgpu_triangle.js';
+
+        async function run() {
+            if (!navigator.gpu) {
+                alert('WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+.');
+                return;
+            }
+            await init();
+        }
+
+        run();
+    </script>
+</body>
+</html>
