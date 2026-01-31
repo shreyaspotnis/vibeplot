@@ -42,6 +42,19 @@
             white-space: pre;
             line-height: 1.6;
         }
+        #debug-hint {
+            display: none;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #888;
+            font-family: monospace;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 6px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
         #command-palette {
             display: none;
             position: absolute;
@@ -99,15 +112,39 @@
     <div class="container">
         <canvas id="canvas"></canvas>
         <div id="debug-panel"></div>
+        <div id="debug-hint">Press / for debug panel</div>
         <div id="command-palette">
             <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
             <div id="command-list"></div>
         </div>
     </div>
+    <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
     <script type="module">
-        import init, { reset_zoom, reset_rotation } from './pkg/webgpu_triangle.js';
+        import init, { reset_zoom, reset_rotation, load_model } from './pkg/webgpu_triangle.js';
+
+        function loadModelFromFile() {
+            const input = document.getElementById('model-file-input');
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            load_model(event.target.result);
+                            console.log('Model loaded successfully');
+                        } catch (err) {
+                            alert('Failed to load model: ' + err);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+                input.value = ''; // Reset for next use
+            };
+            input.click();
+        }
 
         const commands = [
+            { id: 'load-model', label: 'Load Model', action: () => loadModelFromFile() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
             { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
         ];

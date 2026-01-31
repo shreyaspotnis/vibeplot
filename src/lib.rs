@@ -3,8 +3,21 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
 
+struct ModelResources {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+}
+
+struct GpuResources {
+    device: Rc<wgpu::Device>,
+    queue: Rc<wgpu::Queue>,
+}
+
 thread_local! {
     static INTERACTION_STATE: RefCell<Option<Rc<RefCell<InteractionState>>>> = RefCell::new(None);
+    static GPU_RESOURCES: RefCell<Option<GpuResources>> = RefCell::new(None);
+    static MODEL_RESOURCES: RefCell<Option<Rc<RefCell<ModelResources>>>> = RefCell::new(None);
 }
 
 #[wasm_bindgen]
@@ -27,6 +40,101 @@ pub fn reset_rotation() {
     });
 }
 
+#[wasm_bindgen]
+pub fn load_model(model_text: &str) -> Result<(), JsValue> {
+    let (vertices, indices) = parse_model(model_text)
+        .map_err(|e| JsValue::from_str(&e))?;
+
+    GPU_RESOURCES.with(|gpu| {
+        MODEL_RESOURCES.with(|model| {
+            let gpu = gpu.borrow();
+            let model = model.borrow();
+
+            if let (Some(gpu), Some(model)) = (gpu.as_ref(), model.as_ref()) {
+                let vertex_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let index_buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Index Buffer"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
+                let mut model = model.borrow_mut();
+                model.vertex_buffer = vertex_buffer;
+                model.index_buffer = index_buffer;
+                model.num_indices = indices.len() as u32;
+            }
+        });
+    });
+
+    Ok(())
+}
+
+fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        match parts[0] {
+            "v" | "vertex" => {
+                if parts.len() < 10 {
+                    return Err(format!("Invalid vertex line: {}", line));
+                }
+                let position = [
+                    parts[1].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[2].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[3].parse::<f32>().map_err(|e| e.to_string())?,
+                ];
+                let normal = [
+                    parts[4].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[5].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[6].parse::<f32>().map_err(|e| e.to_string())?,
+                ];
+                let color = [
+                    parts[7].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[8].parse::<f32>().map_err(|e| e.to_string())?,
+                    parts[9].parse::<f32>().map_err(|e| e.to_string())?,
+                ];
+                vertices.push(Vertex { position, normal, color });
+            }
+            "f" | "face" | "tri" | "triangle" => {
+                if parts.len() < 4 {
+                    return Err(format!("Invalid face line: {}", line));
+                }
+                indices.push(parts[1].parse::<u16>().map_err(|e| e.to_string())?);
+                indices.push(parts[2].parse::<u16>().map_err(|e| e.to_string())?);
+                indices.push(parts[3].parse::<u16>().map_err(|e| e.to_string())?);
+            }
+            _ => {
+                // Skip unknown lines
+            }
+        }
+    }
+
+    if vertices.is_empty() {
+        return Err("No vertices found in model".to_string());
+    }
+    if indices.is_empty() {
+        return Err("No faces found in model".to_string());
+    }
+
+    Ok((vertices, indices))
+}
+
 #[wasm_bindgen(start)]
 pub async fn run() {
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -42,6 +150,11 @@ pub async fn run() {
     let debug_panel = document
         .get_element_by_id("debug-panel")
         .expect("No debug panel element")
+        .dyn_into::<web_sys::HtmlElement>()
+        .expect("Not an HtmlElement");
+    let debug_hint = document
+        .get_element_by_id("debug-hint")
+        .expect("No debug hint element")
         .dyn_into::<web_sys::HtmlElement>()
         .expect("Not an HtmlElement");
 
@@ -75,6 +188,14 @@ pub async fn run() {
 
     let device = Rc::new(device);
     let queue = Rc::new(queue);
+
+    // Store GPU resources for access from exported functions
+    GPU_RESOURCES.with(|gpu| {
+        *gpu.borrow_mut() = Some(GpuResources {
+            device: device.clone(),
+            queue: queue.clone(),
+        });
+    });
 
     let surface_caps = surface.get_capabilities(&adapter);
     let surface_format = surface_caps
@@ -216,6 +337,17 @@ pub async fn run() {
 
     let num_indices = indices.len() as u32;
 
+    // Store model resources for dynamic loading
+    let model_resources = Rc::new(RefCell::new(ModelResources {
+        vertex_buffer,
+        index_buffer,
+        num_indices,
+    }));
+
+    MODEL_RESOURCES.with(|m| {
+        *m.borrow_mut() = Some(model_resources.clone());
+    });
+
     // Shared state for interaction
     let state = Rc::new(RefCell::new(InteractionState {
         is_dragging: false,
@@ -237,14 +369,12 @@ pub async fn run() {
     // Set up event handlers
     setup_mouse_handlers(&canvas, state.clone());
     setup_wheel_handler(&canvas, state.clone());
-    setup_keyboard_handler(&window, &debug_panel);
+    setup_keyboard_handler(&window, &debug_panel, &debug_hint);
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
     let depth_view = Rc::new(depth_view);
     let render_pipeline = Rc::new(render_pipeline);
-    let vertex_buffer = Rc::new(vertex_buffer);
-    let index_buffer = Rc::new(index_buffer);
     let bind_group = Rc::new(bind_group);
     let uniform_buffer = Rc::new(uniform_buffer);
 
@@ -340,9 +470,11 @@ pub async fn run() {
 
             render_pass.set_pipeline(&render_pipeline);
             render_pass.set_bind_group(0, Some(&*bind_group), &[]);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..num_indices, 0, 0..1);
+
+            let model = model_resources.borrow();
+            render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(model.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..model.num_indices, 0, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -499,17 +631,23 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
     closure.forget();
 }
 
-fn setup_keyboard_handler(window: &web_sys::Window, debug_panel: &web_sys::HtmlElement) {
+fn setup_keyboard_handler(window: &web_sys::Window, debug_panel: &web_sys::HtmlElement, debug_hint: &web_sys::HtmlElement) {
     let debug_panel = debug_panel.clone();
+    let debug_hint = debug_hint.clone();
     let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::KeyboardEvent| {
         if event.key() == "/" {
             event.prevent_default();
-            let style = debug_panel.style();
-            let current_display = style.get_property_value("display").unwrap_or_default();
-            if current_display == "none" {
-                style.set_property("display", "block").unwrap();
+            let panel_style = debug_panel.style();
+            let hint_style = debug_hint.style();
+            let panel_display = panel_style.get_property_value("display").unwrap_or_default();
+            if panel_display == "none" {
+                // Show full panel, hide hint
+                panel_style.set_property("display", "block").unwrap();
+                hint_style.set_property("display", "none").unwrap();
             } else {
-                style.set_property("display", "none").unwrap();
+                // Hide full panel, show hint
+                panel_style.set_property("display", "none").unwrap();
+                hint_style.set_property("display", "block").unwrap();
             }
         }
     });
