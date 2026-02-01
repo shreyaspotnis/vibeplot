@@ -34,6 +34,7 @@ This is a Rust/WebAssembly project rendering an interactive models with WebGPU. 
 | Scroll | Zoom in/out (scale 0.1–5.0) |
 | `/` | Toggle debug panel |
 | `Cmd+Shift+P` | Open command palette |
+| `Cmd+T` | Add new figure |
 
 ### Command Palette
 
@@ -68,6 +69,31 @@ Matrices are row-major in Rust but WGSL expects column-major. The row-by-row ser
 - Model matrix (64 bytes)
 - Light direction (16 bytes)
 - Camera position (16 bytes)
+
+### Multi-Figure Architecture
+
+The app supports multiple figures in a tabbed interface. Figure state is managed in JavaScript while Rust handles rendering.
+
+**JavaScript Figure State:**
+```javascript
+figures = [
+  { id, name, modelText, rotationX, rotationY, zoom }
+]
+```
+
+**State Transfer (Rust exports):**
+- `get_rotation()` / `set_rotation(x, y)` - Get/set rotation angles
+- `get_zoom()` / `set_zoom(scale)` - Get/set zoom level
+
+**Tab Switching Flow:**
+1. Save current figure's rotation/zoom from Rust to JavaScript
+2. Load new figure's model via `load_model()` or built-in model functions
+3. Restore new figure's rotation/zoom from JavaScript to Rust
+
+**Special Model Markers:**
+- `modelText: null` or `"__cube__"` → loads cube model
+- `modelText: "__pyramid__"` → loads pyramid model
+- Other strings → parsed as model text
 
 ### Python Client Architecture
 

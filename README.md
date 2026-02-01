@@ -7,6 +7,7 @@ A WebGPU-powered 3D model viewer that runs entirely in your browser. Built with 
 ## Features
 
 - **WebGPU Rendering** - Hardware-accelerated 3D graphics with Phong/Blinn-Phong lighting
+- **Multi-Figure Tabs** - VS Code-style tabs for managing multiple figures
 - **Interactive Controls** - Mouse drag to rotate, scroll to zoom
 - **Touch Support** - Pinch to zoom, single finger to rotate on touchscreens
 - **Python Client** - Send models from Python scripts via WebSocket
@@ -28,16 +29,29 @@ Visit the live demo: [https://shreyaspotnis.github.io/vibeplot/](https://shreyas
 | Single finger (touch) | Rotate model |
 | `/` | Toggle debug panel |
 | `Cmd+Shift+P` | Open command palette |
+| `Cmd+T` | Add new figure |
 
 ## Commands
 
 Access via command palette (`Cmd+Shift+P` / `Ctrl+Shift+P`):
 
+- **Add Figure** - Create a new figure tab
 - **Generate Model** - Create models with AI assistance
 - **Load Model from disk** - Load a `.txt` model file
 - **Load Model from URL** - Load a model from a URL
+- **Load Cube Model** - Load built-in cube
+- **Load Pyramid Model** - Load built-in pyramid
 - **Reset Zoom** - Reset zoom to default
 - **Reset Rotation** - Reset rotation to default
+
+## Multi-Figure Support
+
+Vibeplot supports multiple figures in a tabbed interface, similar to code editor tabs:
+
+- **Add Figure**: Press `Cmd+T` or use the command palette to create a new figure
+- **Switch Figures**: Click on tabs to switch between figures
+- **Close Figures**: Click the × button on a tab (can't close the last figure)
+- **Independent State**: Each figure maintains its own model, rotation, and zoom
 
 ## Model Format
 
