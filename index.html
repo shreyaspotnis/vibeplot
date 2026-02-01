@@ -524,10 +524,6 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             }
         }
 
-        // Start WebSocket connection attempts
-        connectWebSocket();
-        wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
-
         function loadModelFromFile() {
             const input = document.getElementById('model-file-input');
             input.onchange = (e) => {
@@ -837,6 +833,10 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 return;
             }
             await init();
+
+            // Start WebSocket connection to Python client after WASM is ready
+            connectWebSocket();
+            wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
         }
 
         run();
