@@ -723,12 +723,28 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         function loadFigureModel(index) {
             if (index >= 0 && index < figures.length) {
                 const figure = figures[index];
-                if (figure.modelText) {
-                    load_model(figure.modelText);
-                } else {
+                if (figure.modelText === '__cube__' || !figure.modelText) {
                     load_cube_model();
+                } else if (figure.modelText === '__pyramid__') {
+                    load_pyramid_model();
+                } else {
+                    load_model(figure.modelText);
                 }
             }
+        }
+
+        function loadCubeToActiveFigure() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = '__cube__';
+            }
+            load_cube_model();
+        }
+
+        function loadPyramidToActiveFigure() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = '__pyramid__';
+            }
+            load_pyramid_model();
         }
 
         function switchToFigure(index) {
@@ -941,8 +957,8 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
-            { id: 'load-cube', label: 'Load Cube Model', action: () => load_cube_model() },
-            { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => load_pyramid_model() },
+            { id: 'load-cube', label: 'Load Cube Model', action: () => loadCubeToActiveFigure() },
+            { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => loadPyramidToActiveFigure() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
             { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
         ];
