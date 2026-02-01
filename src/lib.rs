@@ -20,6 +20,9 @@ const ZOOM_SPEED: f32 = 0.001;
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 5.0;
 
+// Default model (embedded at compile time)
+const DEFAULT_MODEL: &str = include_str!("../models/cube.txt");
+
 struct ModelResources {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -333,8 +336,8 @@ pub async fn run() {
         cache: None,
     });
 
-    // Create cube geometry
-    let (vertices, indices) = create_cube();
+    // Load default model (embedded at compile time)
+    let (vertices, indices) = parse_model(DEFAULT_MODEL).expect("Failed to parse default model");
 
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
@@ -497,59 +500,6 @@ pub async fn run() {
         .expect("Failed to request animation frame");
 
     log::info!("Interactive cube started!");
-}
-
-fn create_cube() -> (Vec<Vertex>, Vec<u16>) {
-    // Each face has 4 vertices with the same normal but different positions
-    // Colors: Front=Red, Back=Green, Top=Blue, Bottom=Yellow, Right=Cyan, Left=Magenta
-    let vertices = vec![
-        // Front face (z = 0.5) - Red
-        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
-        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
-        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
-        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color: [1.0, 0.2, 0.2] },
-
-        // Back face (z = -0.5) - Green
-        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
-        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
-        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
-        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color: [0.2, 1.0, 0.2] },
-
-        // Top face (y = 0.5) - Blue
-        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
-        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
-        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
-        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color: [0.2, 0.2, 1.0] },
-
-        // Bottom face (y = -0.5) - Yellow
-        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
-        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
-        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
-        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.2] },
-
-        // Right face (x = 0.5) - Cyan
-        Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
-        Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
-        Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
-        Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0], color: [0.2, 1.0, 1.0] },
-
-        // Left face (x = -0.5) - Magenta
-        Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
-        Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
-        Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
-        Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0], color: [1.0, 0.2, 1.0] },
-    ];
-
-    let indices: Vec<u16> = vec![
-        0,  1,  2,  0,  2,  3,  // Front
-        4,  5,  6,  4,  6,  7,  // Back
-        8,  9,  10, 8,  10, 11, // Top
-        12, 13, 14, 12, 14, 15, // Bottom
-        16, 17, 18, 16, 18, 19, // Right
-        20, 21, 22, 20, 22, 23, // Left
-    ];
-
-    (vertices, indices)
 }
 
 fn setup_mouse_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<InteractionState>>) {
