@@ -38,18 +38,21 @@ class VibePlotConnection:
         self._server_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._connected = threading.Event()
+        self._ready = threading.Event()
         self._started = threading.Event()
 
     async def _handle_client(self, websocket):
         """Handle incoming browser connection."""
         self._websocket = websocket
         self._connected.set()
-        print(f"vibeplot: Browser connected")
         try:
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    if data.get("type") == "ack" and not data.get("success"):
+                    if data.get("type") == "ready":
+                        self._ready.set()
+                        print("vibeplot: Browser connected")
+                    elif data.get("type") == "ack" and not data.get("success"):
                         print(f"vibeplot error: {data.get('error')}")
                 except json.JSONDecodeError:
                     pass
@@ -59,6 +62,7 @@ class VibePlotConnection:
             print("vibeplot: Browser disconnected")
             self._websocket = None
             self._connected.clear()
+            self._ready.clear()
 
     async def _start_server(self):
         """Start WebSocket server."""
@@ -89,8 +93,8 @@ class VibePlotConnection:
             webbrowser.open(browser_url)
 
     def wait_for_connection(self, timeout: Optional[float] = None) -> bool:
-        """Block until browser connects. Returns True if connected, False on timeout."""
-        return self._connected.wait(timeout=timeout)
+        """Block until browser connects and is ready. Returns True if ready, False on timeout."""
+        return self._ready.wait(timeout=timeout)
 
     @property
     def is_connected(self) -> bool:

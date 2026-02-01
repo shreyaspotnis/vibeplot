@@ -466,6 +466,8 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                         clearInterval(wsReconnectTimer);
                         wsReconnectTimer = null;
                     }
+                    // Tell Python we're ready to receive messages
+                    ws.send(JSON.stringify({ type: 'ready' }));
                 };
 
                 ws.onmessage = (event) => {
