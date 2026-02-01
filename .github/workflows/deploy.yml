@@ -24,15 +24,19 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM
-        run: wasm-pack build --target web --release
+        run: |
+          wasm-pack build --target web --release
+          echo "=== After wasm-pack build ==="
+          ls -la
+          ls -la pkg/
 
       - name: Prepare deployment
         run: |
-          mkdir -p dist
+          mkdir -p dist/pkg
           cp index.html dist/
-          cp -r pkg dist/
-          ls -la dist/
-          ls -la dist/pkg/
+          cp pkg/* dist/pkg/
+          echo "=== Contents of dist ==="
+          find dist -type f
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
