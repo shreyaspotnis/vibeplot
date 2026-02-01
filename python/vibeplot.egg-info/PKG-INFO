@@ -1,6 +1,0 @@
-Metadata-Version: 2.4
-Name: vibeplot
-Version: 0.1.0
-Summary: Python client for vibeplot 3D model viewer
-Requires-Python: >=3.8
-Requires-Dist: websockets>=10.0

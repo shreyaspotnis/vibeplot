@@ -1,7 +1,0 @@
-pyproject.toml
-vibeplot/__init__.py
-vibeplot.egg-info/PKG-INFO
-vibeplot.egg-info/SOURCES.txt
-vibeplot.egg-info/dependency_links.txt
-vibeplot.egg-info/requires.txt
-vibeplot.egg-info/top_level.txt
