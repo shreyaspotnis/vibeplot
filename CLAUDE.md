@@ -22,8 +22,9 @@ This is a Rust/WebAssembly project rendering an interactive models with WebGPU. 
 
 - `src/lib.rs` - Main Rust code: WebGPU initialization, render pipeline, event handlers, animation loop, matrix math utilities, and exported command functions
 - `src/shader.wgsl` - WGSL shaders with Phong/Blinn-Phong lighting (ambient + diffuse + specular)
-- `index.html` - Web entry point with full-screen canvas, debug panel, command palette UI, and JavaScript for palette logic
+- `index.html` - Web entry point with full-screen canvas, debug panel, command palette UI, WebSocket client, and JavaScript for palette logic
 - `pkg/` - Generated WASM output (built by wasm-pack)
+- `python/vibeplot/` - Python client package for remote model loading
 
 ### User Controls
 
@@ -67,3 +68,29 @@ Matrices are row-major in Rust but WGSL expects column-major. The row-by-row ser
 - Model matrix (64 bytes)
 - Light direction (16 bytes)
 - Camera position (16 bytes)
+
+### Python Client Architecture
+
+The Python client allows sending models from Python scripts to the browser via WebSocket.
+
+**Connection Flow:**
+1. Python starts WebSocket server on `ws://localhost:9753`
+2. Python opens browser to `http://localhost:8000`
+3. Browser loads page, initializes WASM via `init()`
+4. Browser connects to WebSocket server
+5. Browser sends `{"type": "ready"}` message
+6. Python receives "ready" and `start()` returns
+7. Python can now call `load_model()` to send models
+
+**Message Protocol (JSON):**
+```json
+{"type": "load_model", "data": "vertex 0 0.5 0..."}
+{"type": "reset_zoom"}
+{"type": "reset_rotation"}
+{"type": "ready"}  // Browser -> Python
+{"type": "ack", "success": true, "error": null}  // Browser -> Python
+```
+
+**Key Files:**
+- `python/vibeplot/__init__.py` - WebSocket server and API functions
+- `index.html` (lines ~457-525) - WebSocket client in JavaScript

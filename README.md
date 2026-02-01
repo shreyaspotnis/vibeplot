@@ -9,6 +9,7 @@ A WebGPU-powered 3D model viewer that runs entirely in your browser. Built with 
 - **WebGPU Rendering** - Hardware-accelerated 3D graphics with Phong/Blinn-Phong lighting
 - **Interactive Controls** - Mouse drag to rotate, scroll to zoom
 - **Touch Support** - Pinch to zoom, single finger to rotate on touchscreens
+- **Python Client** - Send models from Python scripts via WebSocket
 - **Load Custom Models** - From disk, URL, or generate with AI
 - **Command Palette** - VS Code-style command palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
 - **Debug Panel** - Real-time display of rotation and zoom values
@@ -90,6 +91,46 @@ python3 -m http.server 8000
 ```
 
 Then open [http://localhost:8000](http://localhost:8000) in a WebGPU-capable browser (Chrome 113+, Edge 113+).
+
+## Python Client
+
+Send models to vibeplot from Python scripts. Useful for visualizing programmatically generated geometry.
+
+### Installation
+
+```bash
+cd vibeplot
+python3 -m venv .venv
+source .venv/bin/activate
+pip install python/
+```
+
+### Usage
+
+```python
+import vibeplot
+
+vibeplot.start()  # Opens browser and waits for connection
+
+vibeplot.load_model("""
+vertex  0.0  0.5  0.0   0.0 0.0 1.0   1.0 0.0 0.0
+vertex -0.5 -0.5  0.0   0.0 0.0 1.0   0.0 1.0 0.0
+vertex  0.5 -0.5  0.0   0.0 0.0 1.0   0.0 0.0 1.0
+face 0 1 2
+""")
+
+vibeplot.show()  # Keep running until Ctrl+C
+```
+
+### API
+
+- `vibeplot.start()` - Start server and open browser (blocks until connected)
+- `vibeplot.load_model(text)` - Send model to browser
+- `vibeplot.reset_zoom()` - Reset zoom to default
+- `vibeplot.reset_rotation()` - Reset rotation to default
+- `vibeplot.show()` - Block until Ctrl+C (like matplotlib)
+
+**Note:** The HTTP server (`python3 -m http.server 8000`) must be running for the browser to load vibeplot.
 
 ## Browser Support
 
