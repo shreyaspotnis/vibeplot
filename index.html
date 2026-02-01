@@ -30,6 +30,7 @@
             display: block;
         }
         #debug-panel {
+            display: none;
             position: absolute;
             top: 10px;
             left: 10px;
@@ -49,7 +50,6 @@
             border-color: #666;
         }
         #debug-hint {
-            display: none;
             position: absolute;
             top: 10px;
             left: 10px;
@@ -736,7 +736,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         function toggleDebugPanel() {
             const panel = document.getElementById('debug-panel');
             const hint = document.getElementById('debug-hint');
-            const panelDisplay = panel.style.display;
+            const panelDisplay = getComputedStyle(panel).display;
             if (panelDisplay === 'none') {
                 panel.style.display = 'block';
                 hint.style.display = 'none';
