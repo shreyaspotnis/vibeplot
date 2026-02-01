@@ -106,6 +106,74 @@
             color: #18a3ff;
             font-weight: bold;
         }
+        #url-input-dialog {
+            display: none;
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 500px;
+            max-width: 90%;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+        }
+        #url-input-dialog.visible {
+            display: block;
+        }
+        #url-input-dialog label {
+            display: block;
+            padding: 12px 16px 8px;
+            color: #ccc;
+            font-size: 13px;
+        }
+        #url-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #url-input::placeholder {
+            color: #888;
+        }
+        #url-input-hint {
+            padding: 8px 16px 12px;
+            color: #888;
+            font-size: 12px;
+        }
+        #error-message {
+            display: none;
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 90%;
+            background: #5a1d1d;
+            border: 1px solid #8b3a3a;
+            border-radius: 6px;
+            padding: 16px 20px;
+            color: #ff9999;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            z-index: 1002;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        #error-message.visible {
+            display: block;
+        }
+        #error-message .error-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #ffcccc;
+        }
     </style>
 </head>
 <body>
@@ -116,6 +184,15 @@
         <div id="command-palette">
             <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
             <div id="command-list"></div>
+        </div>
+        <div id="url-input-dialog">
+            <label>Enter model URL:</label>
+            <input type="text" id="url-input" placeholder="https://example.com/model.txt" autocomplete="off" />
+            <div id="url-input-hint">Press Enter to load, Escape to cancel</div>
+        </div>
+        <div id="error-message">
+            <div class="error-title">Error loading model</div>
+            <div id="error-text"></div>
         </div>
     </div>
     <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
@@ -133,7 +210,7 @@
                             load_model(event.target.result);
                             console.log('Model loaded successfully');
                         } catch (err) {
-                            alert('Failed to load model: ' + err);
+                            showError('Failed to load model: ' + err);
                         }
                     };
                     reader.readAsText(file);
@@ -143,8 +220,61 @@
             input.click();
         }
 
+        function showUrlDialog() {
+            const dialog = document.getElementById('url-input-dialog');
+            const input = document.getElementById('url-input');
+            dialog.classList.add('visible');
+            input.value = '';
+            input.focus();
+        }
+
+        function hideUrlDialog() {
+            const dialog = document.getElementById('url-input-dialog');
+            dialog.classList.remove('visible');
+        }
+
+        function showError(message) {
+            const errorBox = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            errorText.textContent = message;
+            errorBox.classList.add('visible');
+            setTimeout(() => {
+                errorBox.classList.remove('visible');
+            }, 5000);
+        }
+
+        async function loadModelFromUrl(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const text = await response.text();
+                load_model(text);
+                console.log('Model loaded successfully from URL');
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        // URL input event handlers
+        document.getElementById('url-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideUrlDialog();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const url = e.target.value.trim();
+                if (url) {
+                    hideUrlDialog();
+                    loadModelFromUrl(url);
+                }
+            }
+        });
+
         const commands = [
-            { id: 'load-model', label: 'Load Model', action: () => loadModelFromFile() },
+            { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
+            { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
             { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
         ];
@@ -224,11 +354,14 @@
 
         document.addEventListener('keydown', (e) => {
             const palette = document.getElementById('command-palette');
-            const isVisible = palette.classList.contains('visible');
+            const urlDialog = document.getElementById('url-input-dialog');
+            const paletteVisible = palette.classList.contains('visible');
+            const urlDialogVisible = urlDialog.classList.contains('visible');
 
             if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
                 e.preventDefault();
-                if (isVisible) {
+                hideUrlDialog();
+                if (paletteVisible) {
                     hidePalette();
                 } else {
                     showPalette();
@@ -236,7 +369,10 @@
                 return;
             }
 
-            if (!isVisible) return;
+            // URL dialog is handled by its own input listener
+            if (urlDialogVisible) return;
+
+            if (!paletteVisible) return;
 
             if (e.key === 'Escape') {
                 e.preventDefault();
@@ -265,6 +401,10 @@
                 selectedIndex = parseInt(item.dataset.index);
                 executeSelected();
             }
+        });
+
+        document.getElementById('error-message').addEventListener('click', () => {
+            document.getElementById('error-message').classList.remove('visible');
         });
 
         async function run() {
