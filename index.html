@@ -174,6 +174,154 @@
             margin-bottom: 8px;
             color: #ffcccc;
         }
+        #generate-model-dialog {
+            display: none;
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 700px;
+            max-width: 95%;
+            max-height: 90vh;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+        }
+        #generate-model-dialog.visible {
+            display: flex;
+        }
+        #generate-model-dialog .dialog-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #333;
+            border-bottom: 1px solid #454545;
+        }
+        #generate-model-dialog .dialog-title {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        #generate-model-dialog .close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+        #generate-model-dialog .close-btn:hover {
+            color: #fff;
+        }
+        #generate-model-dialog .dialog-content {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        #generate-model-dialog .section {
+            margin-bottom: 16px;
+        }
+        #generate-model-dialog .section-title {
+            color: #ccc;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        #generate-model-dialog .format-spec {
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        #generate-model-dialog .prompt-area {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            color: #d4d4d4;
+            resize: vertical;
+            outline: none;
+        }
+        #generate-model-dialog .prompt-area:focus {
+            border-color: #007acc;
+        }
+        #generate-model-dialog .model-output {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d4d4d4;
+            resize: vertical;
+            outline: none;
+        }
+        #generate-model-dialog .model-output:focus {
+            border-color: #007acc;
+        }
+        #generate-model-dialog .button-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        #generate-model-dialog .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #generate-model-dialog .btn-primary {
+            background: #0e639c;
+            color: #fff;
+        }
+        #generate-model-dialog .btn-primary:hover {
+            background: #1177bb;
+        }
+        #generate-model-dialog .btn-secondary {
+            background: #3c3c3c;
+            color: #ccc;
+        }
+        #generate-model-dialog .btn-secondary:hover {
+            background: #4c4c4c;
+        }
+        #generate-model-dialog .hint {
+            color: #888;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        #generate-model-dialog .copy-feedback {
+            color: #4ec9b0;
+            font-size: 12px;
+            margin-left: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        #generate-model-dialog .copy-feedback.visible {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -193,6 +341,58 @@
         <div id="error-message">
             <div class="error-title">Error loading model</div>
             <div id="error-text"></div>
+        </div>
+        <div id="generate-model-dialog">
+            <div class="dialog-header">
+                <span class="dialog-title">Generate Model with AI</span>
+                <button class="close-btn" id="generate-dialog-close">&times;</button>
+            </div>
+            <div class="dialog-content">
+                <div class="section">
+                    <div class="section-title">Model Format Specification</div>
+                    <div class="format-spec"># Model File Format
+# Lines starting with # are comments
+# Blank lines are ignored
+
+# Vertices: position (x y z), normal (nx ny nz), color (r g b)
+# All values are floats. Colors are 0.0 to 1.0
+vertex x y z nx ny nz r g b
+
+# Faces: three vertex indices (0-indexed)
+face i0 i1 i2
+
+# Example: A simple triangle
+vertex  0.0  0.5  0.0   0.0 0.0 1.0   1.0 0.0 0.0
+vertex -0.5 -0.5  0.0   0.0 0.0 1.0   0.0 1.0 0.0
+vertex  0.5 -0.5  0.0   0.0 0.0 1.0   0.0 0.0 1.0
+face 0 1 2</div>
+                </div>
+                <div class="section">
+                    <div class="section-title">Prompt for AI <span class="copy-feedback" id="copy-feedback">Copied!</span></div>
+                    <textarea class="prompt-area" id="generate-prompt">Generate a 3D model in the following format:
+
+- Each vertex line: vertex x y z nx ny nz r g b
+  (position, normal vector, RGB color 0-1)
+- Each face line: face i0 i1 i2
+  (three 0-indexed vertex indices, counter-clockwise winding)
+
+Create a [DESCRIBE YOUR MODEL HERE - e.g., "pyramid with a red base and yellow tip" or "low-poly sphere with rainbow colors"].
+
+Output only the model data, no explanations. Start with vertices, then faces.</textarea>
+                    <div class="button-row">
+                        <button class="btn btn-secondary" id="copy-prompt-btn">Copy Prompt</button>
+                    </div>
+                    <div class="hint">Copy this prompt, modify the description in brackets, and paste into your AI assistant.</div>
+                </div>
+                <div class="section">
+                    <div class="section-title">Paste Generated Model</div>
+                    <textarea class="model-output" id="generated-model-input" placeholder="Paste the AI-generated model here..."></textarea>
+                    <div class="button-row">
+                        <button class="btn btn-primary" id="load-generated-btn">Load Model</button>
+                        <button class="btn btn-secondary" id="clear-generated-btn">Clear</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
@@ -272,7 +472,58 @@
             }
         });
 
+        // Generate Model dialog functions
+        function showGenerateDialog() {
+            const dialog = document.getElementById('generate-model-dialog');
+            dialog.classList.add('visible');
+        }
+
+        function hideGenerateDialog() {
+            const dialog = document.getElementById('generate-model-dialog');
+            dialog.classList.remove('visible');
+        }
+
+        // Generate Model dialog event handlers
+        document.getElementById('generate-dialog-close').addEventListener('click', hideGenerateDialog);
+
+        document.getElementById('copy-prompt-btn').addEventListener('click', () => {
+            const prompt = document.getElementById('generate-prompt');
+            prompt.select();
+            navigator.clipboard.writeText(prompt.value).then(() => {
+                const feedback = document.getElementById('copy-feedback');
+                feedback.classList.add('visible');
+                setTimeout(() => feedback.classList.remove('visible'), 2000);
+            });
+        });
+
+        document.getElementById('load-generated-btn').addEventListener('click', () => {
+            const modelText = document.getElementById('generated-model-input').value.trim();
+            if (!modelText) {
+                showError('Please paste a model first');
+                return;
+            }
+            try {
+                load_model(modelText);
+                hideGenerateDialog();
+                console.log('Generated model loaded successfully');
+            } catch (err) {
+                showError('Failed to load model: ' + err);
+            }
+        });
+
+        document.getElementById('clear-generated-btn').addEventListener('click', () => {
+            document.getElementById('generated-model-input').value = '';
+        });
+
+        document.getElementById('generate-model-dialog').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideGenerateDialog();
+            }
+        });
+
         const commands = [
+            { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
@@ -355,12 +606,15 @@
         document.addEventListener('keydown', (e) => {
             const palette = document.getElementById('command-palette');
             const urlDialog = document.getElementById('url-input-dialog');
+            const generateDialog = document.getElementById('generate-model-dialog');
             const paletteVisible = palette.classList.contains('visible');
             const urlDialogVisible = urlDialog.classList.contains('visible');
+            const generateDialogVisible = generateDialog.classList.contains('visible');
 
             if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
                 e.preventDefault();
                 hideUrlDialog();
+                hideGenerateDialog();
                 if (paletteVisible) {
                     hidePalette();
                 } else {
@@ -369,8 +623,8 @@
                 return;
             }
 
-            // URL dialog is handled by its own input listener
-            if (urlDialogVisible) return;
+            // Other dialogs are handled by their own listeners
+            if (urlDialogVisible || generateDialogVisible) return;
 
             if (!paletteVisible) return;
 
