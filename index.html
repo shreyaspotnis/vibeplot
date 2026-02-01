@@ -56,31 +56,68 @@
             cursor: pointer;
         }
         #command-palette {
-            display: none;
             position: absolute;
-            top: 80px;
+            top: 10px;
             left: 50%;
             transform: translateX(-50%);
-            width: 500px;
+            width: 400px;
             max-width: 90%;
-            background: #252526;
-            border: 1px solid #454545;
-            border-radius: 6px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             z-index: 1000;
+        }
+        #command-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: rgba(37, 37, 38, 0.9);
+            border: 1px solid #454545;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        #command-trigger:hover {
+            background: rgba(60, 60, 60, 0.95);
+            border-color: #666;
+        }
+        #command-trigger.active {
+            background: #3c3c3c;
+            border-color: #007acc;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+        #command-trigger-text {
+            color: #888;
+            font-size: 13px;
+        }
+        #command-trigger-shortcut {
+            color: #666;
+            font-size: 11px;
+            padding: 2px 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        #command-dropdown {
+            display: none;
+            background: #252526;
+            border: 1px solid #007acc;
+            border-top: none;
+            border-bottom-left-radius: 6px;
+            border-bottom-right-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             overflow: hidden;
         }
-        #command-palette.visible {
+        #command-dropdown.visible {
             display: block;
         }
         #command-input {
             width: 100%;
-            padding: 12px 16px;
+            padding: 10px 14px;
             border: none;
+            border-bottom: 1px solid #454545;
             background: #3c3c3c;
             color: #fff;
-            font-size: 14px;
+            font-size: 13px;
             outline: none;
             box-sizing: border-box;
         }
@@ -88,14 +125,14 @@
             color: #888;
         }
         #command-list {
-            max-height: 300px;
+            max-height: 250px;
             overflow-y: auto;
         }
         .command-item {
-            padding: 10px 16px;
+            padding: 9px 14px;
             color: #ccc;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
         }
         .command-item:hover,
         .command-item.selected {
@@ -330,8 +367,14 @@
         <div id="debug-panel"></div>
         <div id="debug-hint">Tap or press / for debug panel</div>
         <div id="command-palette">
-            <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
-            <div id="command-list"></div>
+            <div id="command-trigger">
+                <span id="command-trigger-text">Commands...</span>
+                <span id="command-trigger-shortcut">⌘⇧P</span>
+            </div>
+            <div id="command-dropdown">
+                <input type="text" id="command-input" placeholder="Search commands..." autocomplete="off" />
+                <div id="command-list"></div>
+            </div>
         </div>
         <div id="url-input-dialog">
             <label>Enter model URL:</label>
@@ -583,17 +626,30 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         }
 
         function showPalette() {
-            const palette = document.getElementById('command-palette');
+            const trigger = document.getElementById('command-trigger');
+            const dropdown = document.getElementById('command-dropdown');
             const input = document.getElementById('command-input');
-            palette.classList.add('visible');
+            trigger.classList.add('active');
+            dropdown.classList.add('visible');
             input.value = '';
             filterCommands('');
             input.focus();
         }
 
         function hidePalette() {
-            const palette = document.getElementById('command-palette');
-            palette.classList.remove('visible');
+            const trigger = document.getElementById('command-trigger');
+            const dropdown = document.getElementById('command-dropdown');
+            trigger.classList.remove('active');
+            dropdown.classList.remove('visible');
+        }
+
+        function togglePalette() {
+            const dropdown = document.getElementById('command-dropdown');
+            if (dropdown.classList.contains('visible')) {
+                hidePalette();
+            } else {
+                showPalette();
+            }
         }
 
         function executeSelected() {
@@ -604,10 +660,10 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         }
 
         document.addEventListener('keydown', (e) => {
-            const palette = document.getElementById('command-palette');
+            const dropdown = document.getElementById('command-dropdown');
             const urlDialog = document.getElementById('url-input-dialog');
             const generateDialog = document.getElementById('generate-model-dialog');
-            const paletteVisible = palette.classList.contains('visible');
+            const paletteVisible = dropdown.classList.contains('visible');
             const urlDialogVisible = urlDialog.classList.contains('visible');
             const generateDialogVisible = generateDialog.classList.contains('visible');
 
@@ -615,11 +671,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 e.preventDefault();
                 hideUrlDialog();
                 hideGenerateDialog();
-                if (paletteVisible) {
-                    hidePalette();
-                } else {
-                    showPalette();
-                }
+                togglePalette();
                 return;
             }
 
@@ -649,11 +701,24 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             filterCommands(e.target.value);
         });
 
+        document.getElementById('command-trigger').addEventListener('click', () => {
+            togglePalette();
+        });
+
         document.getElementById('command-list').addEventListener('click', (e) => {
             const item = e.target.closest('.command-item');
             if (item) {
                 selectedIndex = parseInt(item.dataset.index);
                 executeSelected();
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const palette = document.getElementById('command-palette');
+            const dropdown = document.getElementById('command-dropdown');
+            if (!palette.contains(e.target) && dropdown.classList.contains('visible')) {
+                hidePalette();
             }
         });
 
