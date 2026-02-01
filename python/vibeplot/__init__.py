@@ -3,7 +3,7 @@ vibeplot - Python client for vibeplot 3D model viewer.
 
 Usage:
     import vibeplot
-    vibeplot.connect()  # Blocks until browser connects
+    vibeplot.start()  # Opens browser and waits for connection
     vibeplot.load_model(model_string)
 """
 
@@ -20,7 +20,7 @@ except ImportError:
     raise ImportError("websockets package required. Install with: pip install websockets")
 
 __version__ = "0.1.0"
-__all__ = ["connect", "load_model", "reset_zoom", "reset_rotation", "VibePlotConnection"]
+__all__ = ["start", "load_model", "reset_zoom", "reset_rotation", "VibePlotConnection"]
 
 DEFAULT_PORT = 9753
 DEFAULT_HOST = "localhost"
@@ -135,20 +135,20 @@ class VibePlotConnection:
 _connection: Optional[VibePlotConnection] = None
 
 
-def connect(
+def start(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
-    open_browser: bool = False,
+    open_browser: bool = True,
     wait: bool = True,
     timeout: Optional[float] = None,
 ) -> VibePlotConnection:
     """
-    Start vibeplot WebSocket server and optionally wait for browser.
+    Start vibeplot server and open browser.
 
     Args:
         host: Host to bind to (default: localhost)
         port: Port to bind to (default: 9753)
-        open_browser: Open default browser to vibeplot page
+        open_browser: Open default browser to vibeplot page (default: True)
         wait: Wait for browser connection before returning
         timeout: Max seconds to wait for connection (None = forever)
 
@@ -157,7 +157,7 @@ def connect(
 
     Example:
         import vibeplot
-        vibeplot.connect()
+        vibeplot.start()
         vibeplot.load_model(model_string)
     """
     global _connection
@@ -177,19 +177,19 @@ def connect(
 def load_model(model_text: str):
     """Send model to connected browser."""
     if not _connection:
-        raise RuntimeError("Not connected. Call vibeplot.connect() first.")
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.load_model(model_text)
 
 
 def reset_zoom():
     """Reset zoom in connected browser."""
     if not _connection:
-        raise RuntimeError("Not connected. Call vibeplot.connect() first.")
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.reset_zoom()
 
 
 def reset_rotation():
     """Reset rotation in connected browser."""
     if not _connection:
-        raise RuntimeError("Not connected. Call vibeplot.connect() first.")
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.reset_rotation()
