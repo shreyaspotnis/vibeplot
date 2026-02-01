@@ -1,3 +1,8 @@
+// Lighting constants
+const AMBIENT_STRENGTH: f32 = 0.15;
+const SPECULAR_STRENGTH: f32 = 0.5;
+const SPECULAR_SHININESS: f32 = 32.0;
+
 struct Uniforms {
     mvp: mat4x4<f32>,
     model: mat4x4<f32>,
@@ -51,8 +56,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let view_dir = normalize(uniforms.camera_pos.xyz - in.world_position);
 
     // Ambient
-    let ambient_strength = 0.15;
-    let ambient = ambient_strength * in.color;
+    let ambient = AMBIENT_STRENGTH * in.color;
 
     // Diffuse (Lambertian)
     let diff = max(dot(normal, light_dir), 0.0);
@@ -60,9 +64,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Specular (Blinn-Phong)
     let halfway_dir = normalize(light_dir + view_dir);
-    let spec = pow(max(dot(normal, halfway_dir), 0.0), 32.0);
-    let specular_strength = 0.5;
-    let specular = specular_strength * spec * vec3<f32>(1.0, 1.0, 1.0);
+    let spec = pow(max(dot(normal, halfway_dir), 0.0), SPECULAR_SHININESS);
+    let specular = SPECULAR_STRENGTH * spec * vec3<f32>(1.0, 1.0, 1.0);
 
     let result = ambient + diffuse + specular;
 

@@ -3,6 +3,23 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wgpu::util::DeviceExt;
 
+// Rendering constants
+const FIELD_OF_VIEW_DEG: f32 = 45.0;
+const NEAR_PLANE: f32 = 0.1;
+const FAR_PLANE: f32 = 100.0;
+const BACKGROUND_COLOR: wgpu::Color = wgpu::Color { r: 0.1, g: 0.1, b: 0.15, a: 1.0 };
+const CAMERA_POSITION: [f32; 3] = [0.0, 0.0, 3.0];
+const LIGHT_DIRECTION: [f32; 3] = [1.0, 1.0, 1.0];
+
+// Interaction constants
+const DEFAULT_ROTATION_X: f32 = -0.5;
+const DEFAULT_ROTATION_Y: f32 = 0.7;
+const DEFAULT_SCALE: f32 = 1.0;
+const MOUSE_SENSITIVITY: f32 = 0.01;
+const ZOOM_SPEED: f32 = 0.001;
+const ZOOM_MIN: f32 = 0.1;
+const ZOOM_MAX: f32 = 5.0;
+
 struct ModelResources {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -11,7 +28,6 @@ struct ModelResources {
 
 struct GpuResources {
     device: Rc<wgpu::Device>,
-    queue: Rc<wgpu::Queue>,
 }
 
 thread_local! {
@@ -24,7 +40,7 @@ thread_local! {
 pub fn reset_zoom() {
     INTERACTION_STATE.with(|state| {
         if let Some(state) = state.borrow().as_ref() {
-            state.borrow_mut().scale = 1.0;
+            state.borrow_mut().scale = DEFAULT_SCALE;
         }
     });
 }
@@ -34,8 +50,8 @@ pub fn reset_rotation() {
     INTERACTION_STATE.with(|state| {
         if let Some(state) = state.borrow().as_ref() {
             let mut s = state.borrow_mut();
-            s.rotation_x = -0.5;
-            s.rotation_y = 0.7;
+            s.rotation_x = DEFAULT_ROTATION_X;
+            s.rotation_y = DEFAULT_ROTATION_Y;
         }
     });
 }
@@ -119,9 +135,7 @@ fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
                 indices.push(parts[2].parse::<u16>().map_err(|e| e.to_string())?);
                 indices.push(parts[3].parse::<u16>().map_err(|e| e.to_string())?);
             }
-            _ => {
-                // Skip unknown lines
-            }
+            _ => {}
         }
     }
 
@@ -193,7 +207,6 @@ pub async fn run() {
     GPU_RESOURCES.with(|gpu| {
         *gpu.borrow_mut() = Some(GpuResources {
             device: device.clone(),
-            queue: queue.clone(),
         });
     });
 
@@ -351,14 +364,13 @@ pub async fn run() {
     // Shared state for interaction
     let state = Rc::new(RefCell::new(InteractionState {
         is_dragging: false,
-        rotation_x: -0.5,
-        rotation_y: 0.7,
-        scale: 1.0,
+        rotation_x: DEFAULT_ROTATION_X,
+        rotation_y: DEFAULT_ROTATION_Y,
+        scale: DEFAULT_SCALE,
         drag_start_x: 0.0,
         drag_start_y: 0.0,
         initial_rotation_x: 0.0,
         initial_rotation_y: 0.0,
-        time: 0.0,
     }));
 
     // Store state in thread_local for access from exported functions
@@ -380,13 +392,12 @@ pub async fn run() {
 
     let aspect = width as f32 / height as f32;
 
-    let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
-    let g = f.clone();
+    let animation_callback: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+    let animation_callback_clone = animation_callback.clone();
 
     let window_clone = window.clone();
-    *g.borrow_mut() = Some(Closure::new(move || {
-        let mut state = state.borrow_mut();
-        state.time += 0.016; // ~60fps
+    *animation_callback_clone.borrow_mut() = Some(Closure::new(move || {
+        let state = state.borrow();
 
         // Update debug panel
         let rotation_x_deg = state.rotation_x.to_degrees();
@@ -414,20 +425,19 @@ pub async fn run() {
         // Note: matrices are row-major in Rust but WGSL expects column-major.
         // The row-by-row serialization effectively transposes, so we reverse multiplication order.
         let model = mat4_mul(mat4_mul(mat4_scale(state.scale), mat4_rotate_x(state.rotation_x)), mat4_rotate_y(state.rotation_y));
-        let view = mat4_look_at([0.0, 0.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        let proj = mat4_perspective(45.0_f32.to_radians(), aspect, 0.1, 100.0);
+        let view = mat4_look_at(CAMERA_POSITION, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        let proj = mat4_perspective(FIELD_OF_VIEW_DEG.to_radians(), aspect, NEAR_PLANE, FAR_PLANE);
         let mvp = mat4_mul(mat4_mul(model, view), proj);
 
         // Light direction (world space, pointing from light to origin)
-        let light_dir = normalize([1.0, 1.0, 1.0]);
-        let camera_pos = [0.0f32, 0.0, 3.0];
+        let light_dir = normalize(LIGHT_DIRECTION);
 
         // Write uniforms
         let mut uniform_data = Vec::with_capacity(40);
         uniform_data.extend_from_slice(&mat4_to_array(mvp));
         uniform_data.extend_from_slice(&mat4_to_array(model));
         uniform_data.extend_from_slice(&[light_dir[0], light_dir[1], light_dir[2], 0.0]);
-        uniform_data.extend_from_slice(&[camera_pos[0], camera_pos[1], camera_pos[2], 0.0]);
+        uniform_data.extend_from_slice(&[CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2], 0.0]);
 
         queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&uniform_data));
 
@@ -447,12 +457,7 @@ pub async fn run() {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.15,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -483,12 +488,12 @@ pub async fn run() {
         drop(state);
 
         window_clone
-            .request_animation_frame(f.borrow().as_ref().unwrap().as_ref().unchecked_ref())
+            .request_animation_frame(animation_callback.borrow().as_ref().unwrap().as_ref().unchecked_ref())
             .expect("Failed to request animation frame");
     }));
 
     window
-        .request_animation_frame(g.borrow().as_ref().unwrap().as_ref().unchecked_ref())
+        .request_animation_frame(animation_callback_clone.borrow().as_ref().unwrap().as_ref().unchecked_ref())
         .expect("Failed to request animation frame");
 
     log::info!("Interactive cube started!");
@@ -571,8 +576,8 @@ fn setup_mouse_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<I
         let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
             let mut state = state.borrow_mut();
             if state.is_dragging {
-                let dx = (event.offset_x() as f32 - state.drag_start_x) * 0.01;
-                let dy = (event.offset_y() as f32 - state.drag_start_y) * 0.01;
+                let dx = (event.offset_x() as f32 - state.drag_start_x) * MOUSE_SENSITIVITY;
+                let dy = (event.offset_y() as f32 - state.drag_start_y) * MOUSE_SENSITIVITY;
                 state.rotation_y = state.initial_rotation_y + dx;
                 state.rotation_x = state.initial_rotation_x + dy;
             }
@@ -613,9 +618,8 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
 
         let mut state = state.borrow_mut();
         let delta = event.delta_y() as f32;
-        let zoom_speed = 0.001;
-        let zoom_factor = 1.0 - delta * zoom_speed;
-        state.scale = (state.scale * zoom_factor).clamp(0.1, 5.0);
+        let zoom_factor = 1.0 - delta * ZOOM_SPEED;
+        state.scale = (state.scale * zoom_factor).clamp(ZOOM_MIN, ZOOM_MAX);
     });
 
     let options = web_sys::AddEventListenerOptions::new();
@@ -666,7 +670,6 @@ struct InteractionState {
     drag_start_y: f32,
     initial_rotation_x: f32,
     initial_rotation_y: f32,
-    time: f32,
 }
 
 #[repr(C)]
@@ -705,15 +708,6 @@ impl Vertex {
 
 // Matrix math utilities
 type Mat4 = [[f32; 4]; 4];
-
-fn mat4_identity() -> Mat4 {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
 
 fn mat4_scale(s: f32) -> Mat4 {
     [
