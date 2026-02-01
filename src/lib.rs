@@ -374,6 +374,9 @@ pub async fn run() {
         drag_start_y: 0.0,
         initial_rotation_x: 0.0,
         initial_rotation_y: 0.0,
+        is_pinching: false,
+        initial_pinch_distance: 0.0,
+        initial_scale: DEFAULT_SCALE,
     }));
 
     // Store state in thread_local for access from exported functions
@@ -384,6 +387,7 @@ pub async fn run() {
     // Set up event handlers
     setup_mouse_handlers(&canvas, state.clone());
     setup_wheel_handler(&canvas, state.clone());
+    setup_touch_handlers(&canvas, state.clone());
     setup_keyboard_handler(&window, &debug_panel, &debug_hint);
 
     // Render loop
@@ -585,6 +589,150 @@ fn setup_wheel_handler(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<In
     closure.forget();
 }
 
+fn get_pinch_distance(event: &web_sys::TouchEvent) -> Option<f32> {
+    let touches = event.touches();
+    if touches.length() >= 2 {
+        let t0 = touches.get(0)?;
+        let t1 = touches.get(1)?;
+        let dx = t1.client_x() as f32 - t0.client_x() as f32;
+        let dy = t1.client_y() as f32 - t0.client_y() as f32;
+        Some((dx * dx + dy * dy).sqrt())
+    } else {
+        None
+    }
+}
+
+fn setup_touch_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<InteractionState>>) {
+    let options = web_sys::AddEventListenerOptions::new();
+    options.set_passive(false);
+
+    // Touch start
+    {
+        let state = state.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+            event.prevent_default();
+            let touches = event.touches();
+            let mut state = state.borrow_mut();
+
+            if touches.length() == 1 {
+                // Single finger - start rotation
+                if let Some(touch) = touches.get(0) {
+                    state.is_dragging = true;
+                    state.is_pinching = false;
+                    state.drag_start_x = touch.client_x() as f32;
+                    state.drag_start_y = touch.client_y() as f32;
+                    state.initial_rotation_x = state.rotation_x;
+                    state.initial_rotation_y = state.rotation_y;
+                }
+            } else if touches.length() >= 2 {
+                // Two fingers - start pinch zoom
+                state.is_dragging = false;
+                state.is_pinching = true;
+                if let Some(dist) = get_pinch_distance(&event) {
+                    state.initial_pinch_distance = dist;
+                    state.initial_scale = state.scale;
+                }
+            }
+        });
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchstart",
+                closure.as_ref().unchecked_ref(),
+                &options,
+            )
+            .unwrap();
+        closure.forget();
+    }
+
+    // Touch move
+    {
+        let state = state.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+            event.prevent_default();
+            let touches = event.touches();
+            let mut state = state.borrow_mut();
+
+            if state.is_pinching && touches.length() >= 2 {
+                // Pinch zoom
+                if let Some(dist) = get_pinch_distance(&event) {
+                    if state.initial_pinch_distance > 0.0 {
+                        let scale_factor = dist / state.initial_pinch_distance;
+                        state.scale = (state.initial_scale * scale_factor).clamp(ZOOM_MIN, ZOOM_MAX);
+                    }
+                }
+            } else if state.is_dragging && touches.length() == 1 {
+                // Single finger rotation
+                if let Some(touch) = touches.get(0) {
+                    let dx = (touch.client_x() as f32 - state.drag_start_x) * MOUSE_SENSITIVITY;
+                    let dy = (touch.client_y() as f32 - state.drag_start_y) * MOUSE_SENSITIVITY;
+                    state.rotation_y = state.initial_rotation_y + dx;
+                    state.rotation_x = state.initial_rotation_x + dy;
+                }
+            }
+        });
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchmove",
+                closure.as_ref().unchecked_ref(),
+                &options,
+            )
+            .unwrap();
+        closure.forget();
+    }
+
+    // Touch end
+    {
+        let state = state.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+            event.prevent_default();
+            let touches = event.touches();
+            let mut state = state.borrow_mut();
+
+            if touches.length() == 0 {
+                // All fingers lifted
+                state.is_dragging = false;
+                state.is_pinching = false;
+            } else if touches.length() == 1 && state.is_pinching {
+                // Went from pinch to single finger - start rotation from current position
+                if let Some(touch) = touches.get(0) {
+                    state.is_pinching = false;
+                    state.is_dragging = true;
+                    state.drag_start_x = touch.client_x() as f32;
+                    state.drag_start_y = touch.client_y() as f32;
+                    state.initial_rotation_x = state.rotation_x;
+                    state.initial_rotation_y = state.rotation_y;
+                }
+            }
+        });
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchend",
+                closure.as_ref().unchecked_ref(),
+                &options,
+            )
+            .unwrap();
+        closure.forget();
+    }
+
+    // Touch cancel
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+            event.prevent_default();
+            let mut state = state.borrow_mut();
+            state.is_dragging = false;
+            state.is_pinching = false;
+        });
+        canvas
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchcancel",
+                closure.as_ref().unchecked_ref(),
+                &options,
+            )
+            .unwrap();
+        closure.forget();
+    }
+}
+
 fn setup_keyboard_handler(window: &web_sys::Window, debug_panel: &web_sys::HtmlElement, debug_hint: &web_sys::HtmlElement) {
     let debug_panel = debug_panel.clone();
     let debug_hint = debug_hint.clone();
@@ -620,6 +768,10 @@ struct InteractionState {
     drag_start_y: f32,
     initial_rotation_x: f32,
     initial_rotation_y: f32,
+    // Touch/pinch state
+    is_pinching: bool,
+    initial_pinch_distance: f32,
+    initial_scale: f32,
 }
 
 #[repr(C)]
