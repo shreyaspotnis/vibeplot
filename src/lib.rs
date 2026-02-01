@@ -64,6 +64,9 @@ pub fn load_model(model_text: &str) -> Result<(), JsValue> {
     let (vertices, indices) = parse_model(model_text)
         .map_err(|e| JsValue::from_str(&e))?;
 
+    // Extract triangles for picking
+    let model_triangles = extract_triangles(&vertices, &indices);
+
     GPU_RESOURCES.with(|gpu| {
         MODEL_RESOURCES.with(|model| {
             let gpu = gpu.borrow();
@@ -90,12 +93,21 @@ pub fn load_model(model_text: &str) -> Result<(), JsValue> {
         });
     });
 
+    // Update model triangles for picking and reset selection
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            let mut state = state.borrow_mut();
+            state.model_triangles = model_triangles;
+            state.selected_face = -1;
+        }
+    });
+
     Ok(())
 }
 
 fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let mut raw_vertices: Vec<([ f32; 3], [f32; 3], [f32; 3])> = Vec::new();
+    let mut raw_faces: Vec<[u16; 3]> = Vec::new();
 
     for line in text.lines() {
         let line = line.trim();
@@ -128,25 +140,47 @@ fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
                     parts[8].parse::<f32>().map_err(|e| e.to_string())?,
                     parts[9].parse::<f32>().map_err(|e| e.to_string())?,
                 ];
-                vertices.push(Vertex { position, normal, color });
+                raw_vertices.push((position, normal, color));
             }
             "f" | "face" | "tri" | "triangle" => {
                 if parts.len() < 4 {
                     return Err(format!("Invalid face line: {}", line));
                 }
-                indices.push(parts[1].parse::<u16>().map_err(|e| e.to_string())?);
-                indices.push(parts[2].parse::<u16>().map_err(|e| e.to_string())?);
-                indices.push(parts[3].parse::<u16>().map_err(|e| e.to_string())?);
+                raw_faces.push([
+                    parts[1].parse::<u16>().map_err(|e| e.to_string())?,
+                    parts[2].parse::<u16>().map_err(|e| e.to_string())?,
+                    parts[3].parse::<u16>().map_err(|e| e.to_string())?,
+                ]);
             }
             _ => {}
         }
     }
 
-    if vertices.is_empty() {
+    if raw_vertices.is_empty() {
         return Err("No vertices found in model".to_string());
     }
-    if indices.is_empty() {
+    if raw_faces.is_empty() {
         return Err("No faces found in model".to_string());
+    }
+
+    // Expand vertices so each face has unique vertices with face_id
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for (face_id, face) in raw_faces.iter().enumerate() {
+        let base_idx = vertices.len() as u16;
+        for &idx in face.iter() {
+            let (position, normal, color) = raw_vertices[idx as usize];
+            vertices.push(Vertex {
+                position,
+                normal,
+                color,
+                face_id: face_id as u32,
+            });
+        }
+        indices.push(base_idx);
+        indices.push(base_idx + 1);
+        indices.push(base_idx + 2);
     }
 
     Ok((vertices, indices))
@@ -258,7 +292,7 @@ pub async fn run() {
     // Uniforms: 4x4 MVP matrix + 4x4 model matrix + vec4 light_dir + vec4 camera_pos
     let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Uniform Buffer"),
-        size: (16 + 16 + 4 + 4) * 4, // 160 bytes
+        size: (16 + 16 + 4 + 4 + 4) * 4, // 176 bytes (MVP + model + light_dir + camera_pos + selected_face)
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -365,6 +399,9 @@ pub async fn run() {
     });
 
     // Shared state for interaction
+    // Extract triangles for picking
+    let model_triangles = extract_triangles(&vertices, &indices);
+
     let state = Rc::new(RefCell::new(InteractionState {
         is_dragging: false,
         rotation_x: DEFAULT_ROTATION_X,
@@ -377,6 +414,10 @@ pub async fn run() {
         is_pinching: false,
         initial_pinch_distance: 0.0,
         initial_scale: DEFAULT_SCALE,
+        selected_face: -1,
+        model_triangles,
+        canvas_width: width,
+        canvas_height: height,
     }));
 
     // Store state in thread_local for access from exported functions
@@ -440,11 +481,13 @@ pub async fn run() {
         let light_dir = normalize(LIGHT_DIRECTION);
 
         // Write uniforms
-        let mut uniform_data = Vec::with_capacity(40);
+        let mut uniform_data = Vec::with_capacity(44);
         uniform_data.extend_from_slice(&mat4_to_array(mvp));
         uniform_data.extend_from_slice(&mat4_to_array(model));
         uniform_data.extend_from_slice(&[light_dir[0], light_dir[1], light_dir[2], 0.0]);
         uniform_data.extend_from_slice(&[CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2], 0.0]);
+        // Selected face as float (will be cast to int in shader), padded to vec4
+        uniform_data.extend_from_slice(&[state.selected_face as f32, 0.0, 0.0, 0.0]);
 
         queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&uniform_data));
 
@@ -542,11 +585,33 @@ fn setup_mouse_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<I
         closure.forget();
     }
 
-    // Mouse up
+    // Mouse up - also handles click detection for face picking
     {
         let state = state.clone();
-        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
-            state.borrow_mut().is_dragging = false;
+        let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
+            let x = event.offset_x() as f32;
+            let y = event.offset_y() as f32;
+
+            let (is_click, face) = {
+                let state = state.borrow();
+                // Check if this was a click (minimal movement)
+                let dx = x - state.drag_start_x;
+                let dy = y - state.drag_start_y;
+                let distance = (dx * dx + dy * dy).sqrt();
+
+                if distance < 5.0 {
+                    // This is a click - pick face
+                    (true, pick_face(x, y, &state))
+                } else {
+                    (false, -1)
+                }
+            };
+
+            let mut state = state.borrow_mut();
+            if is_click {
+                state.selected_face = face;
+            }
+            state.is_dragging = false;
         });
         canvas
             .add_event_listener_with_callback("mouseup", closure.as_ref().unchecked_ref())
@@ -680,14 +745,48 @@ fn setup_touch_handlers(canvas: &web_sys::HtmlCanvasElement, state: Rc<RefCell<I
         closure.forget();
     }
 
-    // Touch end
+    // Touch end - also handles tap detection for face picking
     {
         let state = state.clone();
+        let canvas_clone = canvas.clone();
         let closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
             event.prevent_default();
             let touches = event.touches();
-            let mut state = state.borrow_mut();
+            let changed_touches = event.changed_touches();
 
+            if touches.length() == 0 && changed_touches.length() == 1 {
+                // Single finger lifted - check if it was a tap
+                if let Some(touch) = changed_touches.get(0) {
+                    // Get touch position relative to canvas
+                    let rect = canvas_clone.get_bounding_client_rect();
+                    let x = touch.client_x() as f32 - rect.left() as f32;
+                    let y = touch.client_y() as f32 - rect.top() as f32;
+
+                    let (is_tap, face) = {
+                        let state = state.borrow();
+                        // Check if this was a tap (minimal movement from start)
+                        let dx = x - state.drag_start_x;
+                        let dy = y - state.drag_start_y;
+                        let distance = (dx * dx + dy * dy).sqrt();
+
+                        if distance < 10.0 && !state.is_pinching {
+                            (true, pick_face(x, y, &state))
+                        } else {
+                            (false, -1)
+                        }
+                    };
+
+                    let mut state = state.borrow_mut();
+                    if is_tap {
+                        state.selected_face = face;
+                    }
+                    state.is_dragging = false;
+                    state.is_pinching = false;
+                    return;
+                }
+            }
+
+            let mut state = state.borrow_mut();
             if touches.length() == 0 {
                 // All fingers lifted
                 state.is_dragging = false;
@@ -772,6 +871,12 @@ struct InteractionState {
     is_pinching: bool,
     initial_pinch_distance: f32,
     initial_scale: f32,
+    // Face selection
+    selected_face: i32,
+    // Model geometry for picking (stored as triangles: each 9 floats = 3 vertices * 3 coords)
+    model_triangles: Vec<[[f32; 3]; 3]>,
+    canvas_width: u32,
+    canvas_height: u32,
 }
 
 #[repr(C)]
@@ -780,6 +885,7 @@ struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 3],
+    face_id: u32,
 }
 
 impl Vertex {
@@ -802,6 +908,11 @@ impl Vertex {
                     offset: (std::mem::size_of::<[f32; 3]>() * 2) as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: (std::mem::size_of::<[f32; 3]>() * 3) as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Uint32,
                 },
             ],
         }
@@ -909,4 +1020,154 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+// Extract triangle positions from vertices and indices for picking
+fn extract_triangles(vertices: &[Vertex], indices: &[u16]) -> Vec<[[f32; 3]; 3]> {
+    let mut triangles = Vec::new();
+    for chunk in indices.chunks(3) {
+        if chunk.len() == 3 {
+            triangles.push([
+                vertices[chunk[0] as usize].position,
+                vertices[chunk[1] as usize].position,
+                vertices[chunk[2] as usize].position,
+            ]);
+        }
+    }
+    triangles
+}
+
+// Möller–Trumbore ray-triangle intersection
+fn ray_triangle_intersect(
+    ray_origin: [f32; 3],
+    ray_dir: [f32; 3],
+    v0: [f32; 3],
+    v1: [f32; 3],
+    v2: [f32; 3],
+) -> Option<f32> {
+    const EPSILON: f32 = 0.0000001;
+
+    let edge1 = sub(v1, v0);
+    let edge2 = sub(v2, v0);
+    let h = cross(ray_dir, edge2);
+    let a = dot(edge1, h);
+
+    if a > -EPSILON && a < EPSILON {
+        return None; // Ray is parallel to triangle
+    }
+
+    let f = 1.0 / a;
+    let s = sub(ray_origin, v0);
+    let u = f * dot(s, h);
+
+    if u < 0.0 || u > 1.0 {
+        return None;
+    }
+
+    let q = cross(s, edge1);
+    let v = f * dot(ray_dir, q);
+
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let t = f * dot(edge2, q);
+
+    if t > EPSILON {
+        Some(t)
+    } else {
+        None
+    }
+}
+
+// Convert screen coordinates to ray in world space
+fn screen_to_ray(
+    x: f32,
+    y: f32,
+    width: u32,
+    height: u32,
+    _rotation_x: f32,
+    _rotation_y: f32,
+    _scale: f32,
+) -> ([f32; 3], [f32; 3]) {
+    let aspect = width as f32 / height as f32;
+    let fov = FIELD_OF_VIEW_DEG.to_radians();
+    let tan_fov = (fov / 2.0).tan();
+
+    // Convert screen coords to normalized device coords (-1 to 1)
+    let ndc_x = (2.0 * x / width as f32) - 1.0;
+    let ndc_y = 1.0 - (2.0 * y / height as f32); // Flip Y
+
+    // Convert to view space ray direction
+    let ray_view = normalize([
+        ndc_x * aspect * tan_fov,
+        ndc_y * tan_fov,
+        -1.0,
+    ]);
+
+    // Camera is at CAMERA_POSITION looking at origin
+    // We need to transform the ray to world space and account for model transform
+    // Since we're picking in model space, we transform the ray by inverse model matrix
+
+    let ray_origin = CAMERA_POSITION;
+
+    // For simplicity, we'll transform triangles to world space during picking instead
+    // The ray direction in world space (camera looks down -Z)
+    let ray_dir = ray_view;
+
+    (ray_origin, ray_dir)
+}
+
+// Pick a face given screen coordinates
+fn pick_face(
+    x: f32,
+    y: f32,
+    state: &InteractionState,
+) -> i32 {
+    let (ray_origin, ray_view_dir) = screen_to_ray(
+        x, y,
+        state.canvas_width,
+        state.canvas_height,
+        state.rotation_x,
+        state.rotation_y,
+        state.scale,
+    );
+
+    // Build model matrix to transform triangles
+    let model_mat = mat4_mul(
+        mat4_mul(mat4_scale(state.scale), mat4_rotate_x(state.rotation_x)),
+        mat4_rotate_y(state.rotation_y)
+    );
+
+    let mut closest_face: i32 = -1;
+    let mut closest_t = f32::MAX;
+
+    for (face_id, tri) in state.model_triangles.iter().enumerate() {
+        // Transform triangle vertices by model matrix
+        let v0 = transform_point(tri[0], &model_mat);
+        let v1 = transform_point(tri[1], &model_mat);
+        let v2 = transform_point(tri[2], &model_mat);
+
+        if let Some(t) = ray_triangle_intersect(ray_origin, ray_view_dir, v0, v1, v2) {
+            if t < closest_t {
+                closest_t = t;
+                closest_face = face_id as i32;
+            }
+        }
+    }
+
+    closest_face
+}
+
+// Transform point using the same convention as the GPU (column-major interpretation)
+fn transform_point(p: [f32; 3], m: &Mat4) -> [f32; 3] {
+    [
+        m[0][0] * p[0] + m[1][0] * p[1] + m[2][0] * p[2] + m[3][0],
+        m[0][1] * p[0] + m[1][1] * p[1] + m[2][1] * p[2] + m[3][1],
+        m[0][2] * p[0] + m[1][2] * p[1] + m[2][2] * p[2] + m[3][2],
+    ]
 }

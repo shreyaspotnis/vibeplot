@@ -3,11 +3,16 @@ const AMBIENT_STRENGTH: f32 = 0.15;
 const SPECULAR_STRENGTH: f32 = 0.5;
 const SPECULAR_SHININESS: f32 = 32.0;
 
+// Selection highlight constants
+const HIGHLIGHT_BRIGHTNESS: f32 = 1.3;
+const HIGHLIGHT_BLUE_TINT: vec3<f32> = vec3<f32>(0.1, 0.1, 0.3);
+
 struct Uniforms {
     mvp: mat4x4<f32>,
     model: mat4x4<f32>,
     light_dir: vec4<f32>,
     camera_pos: vec4<f32>,
+    selected_face: vec4<f32>, // x component is face id, -1 means none selected
 }
 
 @group(0) @binding(0)
@@ -17,6 +22,7 @@ struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec3<f32>,
+    @location(3) face_id: u32,
 }
 
 struct VertexOutput {
@@ -24,6 +30,7 @@ struct VertexOutput {
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
     @location(2) color: vec3<f32>,
+    @location(3) @interpolate(flat) face_id: u32,
 }
 
 @vertex
@@ -45,6 +52,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.world_position = (uniforms.model * vec4<f32>(in.position, 1.0)).xyz;
 
     out.color = in.color;
+    out.face_id = in.face_id;
 
     return out;
 }
@@ -67,7 +75,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let spec = pow(max(dot(normal, halfway_dir), 0.0), SPECULAR_SHININESS);
     let specular = SPECULAR_STRENGTH * spec * vec3<f32>(1.0, 1.0, 1.0);
 
-    let result = ambient + diffuse + specular;
+    var result = ambient + diffuse + specular;
+
+    // Apply highlight if this face is selected
+    let selected = i32(uniforms.selected_face.x);
+    if (selected >= 0 && u32(selected) == in.face_id) {
+        result = result * HIGHLIGHT_BRIGHTNESS + HIGHLIGHT_BLUE_TINT;
+    }
 
     return vec4<f32>(result, 1.0);
 }
