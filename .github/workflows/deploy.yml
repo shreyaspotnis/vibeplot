@@ -31,9 +31,12 @@ jobs:
           mkdir -p dist
           cp index.html dist/
           cp -r pkg dist/
+          ls -la dist/
+          ls -la dist/pkg/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          force_orphan: true
