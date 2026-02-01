@@ -1,0 +1,15 @@
+{
+  "name": "vibeplot",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "vibeplot_bg.wasm",
+    "vibeplot.js",
+    "vibeplot.d.ts"
+  ],
+  "main": "vibeplot.js",
+  "types": "vibeplot.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
