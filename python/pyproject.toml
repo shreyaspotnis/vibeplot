@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibeplot"
+version = "0.1.0"
+description = "Python client for vibeplot 3D model viewer"
+requires-python = ">=3.8"
+dependencies = [
+    "websockets>=10.0",
+]

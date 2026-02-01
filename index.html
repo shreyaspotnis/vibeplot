@@ -448,6 +448,86 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
     <script type="module">
         import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model } from './pkg/vibeplot.js';
 
+        // WebSocket connection to Python client
+        let ws = null;
+        let wsReconnectTimer = null;
+        const WS_URL = 'ws://localhost:9753';
+        const WS_RECONNECT_DELAY = 2000;
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+
+            try {
+                ws = new WebSocket(WS_URL);
+
+                ws.onopen = () => {
+                    console.log('vibeplot: Connected to Python client');
+                    if (wsReconnectTimer) {
+                        clearInterval(wsReconnectTimer);
+                        wsReconnectTimer = null;
+                    }
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        handlePythonMessage(msg);
+                    } catch (e) {
+                        console.error('vibeplot: Failed to parse message:', e);
+                    }
+                };
+
+                ws.onclose = () => {
+                    ws = null;
+                    if (!wsReconnectTimer) {
+                        wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
+                    }
+                };
+
+                ws.onerror = () => {
+                    ws = null;
+                };
+            } catch (e) {
+                // WebSocket constructor can throw
+            }
+        }
+
+        function handlePythonMessage(msg) {
+            let success = true;
+            let error = null;
+
+            try {
+                switch (msg.type) {
+                    case 'load_model':
+                        load_model(msg.data);
+                        console.log('vibeplot: Model loaded from Python');
+                        break;
+                    case 'reset_zoom':
+                        reset_zoom();
+                        break;
+                    case 'reset_rotation':
+                        reset_rotation();
+                        break;
+                    case 'ping':
+                        break;
+                    default:
+                        console.warn('vibeplot: Unknown message type:', msg.type);
+                }
+            } catch (e) {
+                success = false;
+                error = e.toString();
+                console.error('vibeplot: Error handling message:', e);
+            }
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ack', success, error }));
+            }
+        }
+
+        // Start WebSocket connection attempts
+        connectWebSocket();
+        wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
+
         function loadModelFromFile() {
             const input = document.getElementById('model-file-input');
             input.onchange = (e) => {
