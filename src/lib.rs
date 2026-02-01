@@ -19,6 +19,7 @@ const MOUSE_SENSITIVITY: f32 = 0.01;
 const ZOOM_SPEED: f32 = 0.001;
 const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 5.0;
+const MSAA_SAMPLE_COUNT: u32 = 4;
 
 // Default model (embedded at compile time)
 const DEFAULT_MODEL: &str = include_str!("../models/cube.txt");
@@ -267,7 +268,24 @@ pub async fn run() {
     };
     surface.configure(&device, &config);
 
-    // Create depth texture
+    // Create MSAA texture for anti-aliasing
+    let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("MSAA Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: MSAA_SAMPLE_COUNT,
+        dimension: wgpu::TextureDimension::D2,
+        format: surface_format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Create depth texture (with MSAA)
     let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Depth Texture"),
         size: wgpu::Extent3d {
@@ -276,10 +294,10 @@ pub async fn run() {
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: MSAA_SAMPLE_COUNT,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth24Plus,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
     let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -362,12 +380,65 @@ pub async fn run() {
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: MSAA_SAMPLE_COUNT,
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
         multiview: None,
         cache: None,
+    });
+
+    // Create wireframe pipeline for selected face outline
+    let wireframe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Wireframe Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_wireframe"),
+            buffers: &[WireframeVertex::desc()],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_wireframe"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::LineList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual, // Occlude wireframe behind other faces
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLE_COUNT,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    });
+
+    // Create wireframe vertex buffer (6 vertices for 3 edges)
+    let wireframe_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Wireframe Buffer"),
+        size: (std::mem::size_of::<WireframeVertex>() * 6) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
     });
 
     // Load default model (embedded at compile time)
@@ -433,8 +504,11 @@ pub async fn run() {
 
     // Render loop
     let surface = Rc::new(RefCell::new(surface));
+    let msaa_view = Rc::new(msaa_view);
     let depth_view = Rc::new(depth_view);
     let render_pipeline = Rc::new(render_pipeline);
+    let wireframe_pipeline = Rc::new(wireframe_pipeline);
+    let wireframe_buffer = Rc::new(wireframe_buffer);
     let bind_group = Rc::new(bind_group);
     let uniform_buffer = Rc::new(uniform_buffer);
 
@@ -491,6 +565,29 @@ pub async fn run() {
 
         queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&uniform_data));
 
+        // Update wireframe buffer if a face is selected (must happen before render pass)
+        let draw_wireframe = if state.selected_face >= 0 {
+            let face_idx = state.selected_face as usize;
+            if face_idx < state.model_triangles.len() {
+                let tri = &state.model_triangles[face_idx];
+                // Create 6 vertices for 3 edges (LineList topology)
+                let wireframe_vertices = [
+                    WireframeVertex { position: tri[0] },
+                    WireframeVertex { position: tri[1] },
+                    WireframeVertex { position: tri[1] },
+                    WireframeVertex { position: tri[2] },
+                    WireframeVertex { position: tri[2] },
+                    WireframeVertex { position: tri[0] },
+                ];
+                queue.write_buffer(&wireframe_buffer, 0, bytemuck::cast_slice(&wireframe_vertices));
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         // Render
         let surface = surface.borrow();
         let output = surface.get_current_texture().expect("Failed to get texture");
@@ -504,8 +601,8 @@ pub async fn run() {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: &msaa_view,
+                    resolve_target: Some(&view), // Resolve MSAA to surface texture
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(BACKGROUND_COLOR),
                         store: wgpu::StoreOp::Store,
@@ -530,6 +627,14 @@ pub async fn run() {
             render_pass.set_vertex_buffer(0, model.vertex_buffer.slice(..));
             render_pass.set_index_buffer(model.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..model.num_indices, 0, 0..1);
+
+            // Draw wireframe around selected face
+            if draw_wireframe {
+                render_pass.set_pipeline(&wireframe_pipeline);
+                render_pass.set_bind_group(0, Some(&*bind_group), &[]);
+                render_pass.set_vertex_buffer(0, wireframe_buffer.slice(..));
+                render_pass.draw(0..6, 0..1);
+            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -913,6 +1018,28 @@ impl Vertex {
                     offset: (std::mem::size_of::<[f32; 3]>() * 3) as wgpu::BufferAddress,
                     shader_location: 3,
                     format: wgpu::VertexFormat::Uint32,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct WireframeVertex {
+    position: [f32; 3],
+}
+
+impl WireframeVertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<WireframeVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
             ],
         }

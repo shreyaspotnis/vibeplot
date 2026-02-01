@@ -85,3 +85,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return vec4<f32>(result, 1.0);
 }
+
+// Wireframe shader for selected face outline
+struct WireframeVertexInput {
+    @location(0) position: vec3<f32>,
+}
+
+struct WireframeVertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+}
+
+@vertex
+fn vs_wireframe(in: WireframeVertexInput) -> WireframeVertexOutput {
+    var out: WireframeVertexOutput;
+    out.clip_position = uniforms.mvp * vec4<f32>(in.position, 1.0);
+    return out;
+}
+
+@fragment
+fn fs_wireframe(in: WireframeVertexOutput) -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 1.0, 1.0, 1.0); // White wireframe
+}
