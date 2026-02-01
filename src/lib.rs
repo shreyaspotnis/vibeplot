@@ -21,8 +21,9 @@ const ZOOM_MIN: f32 = 0.1;
 const ZOOM_MAX: f32 = 5.0;
 const MSAA_SAMPLE_COUNT: u32 = 4;
 
-// Default model (embedded at compile time)
-const DEFAULT_MODEL: &str = include_str!("../models/cube.txt");
+// Built-in models (embedded at compile time)
+const CUBE_MODEL: &str = include_str!("../models/cube.txt");
+const PYRAMID_MODEL: &str = include_str!("../models/pyramid.txt");
 
 struct ModelResources {
     vertex_buffer: wgpu::Buffer,
@@ -104,6 +105,16 @@ pub fn load_model(model_text: &str) -> Result<(), JsValue> {
     });
 
     Ok(())
+}
+
+#[wasm_bindgen]
+pub fn load_cube_model() -> Result<(), JsValue> {
+    load_model(CUBE_MODEL)
+}
+
+#[wasm_bindgen]
+pub fn load_pyramid_model() -> Result<(), JsValue> {
+    load_model(PYRAMID_MODEL)
 }
 
 fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
@@ -442,7 +453,7 @@ pub async fn run() {
     });
 
     // Load default model (embedded at compile time)
-    let (vertices, indices) = parse_model(DEFAULT_MODEL).expect("Failed to parse default model");
+    let (vertices, indices) = parse_model(CUBE_MODEL).expect("Failed to parse default model");
 
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),

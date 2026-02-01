@@ -446,7 +446,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
     </div>
     <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
     <script type="module">
-        import init, { reset_zoom, reset_rotation, load_model } from './pkg/vibeplot.js';
+        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model } from './pkg/vibeplot.js';
 
         function loadModelFromFile() {
             const input = document.getElementById('model-file-input');
@@ -575,6 +575,8 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
+            { id: 'load-cube', label: 'Load Cube Model', action: () => load_cube_model() },
+            { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => load_pyramid_model() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
             { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
         ];
