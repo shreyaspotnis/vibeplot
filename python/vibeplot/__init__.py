@@ -5,6 +5,7 @@ Usage:
     import vibeplot
     vibeplot.start()  # Opens browser and waits for connection
     vibeplot.load_model(model_string)
+    vibeplot.show()   # Keep running until Ctrl+C
 """
 
 import asyncio
@@ -20,7 +21,7 @@ except ImportError:
     raise ImportError("websockets package required. Install with: pip install websockets")
 
 __version__ = "0.1.0"
-__all__ = ["start", "load_model", "reset_zoom", "reset_rotation", "VibePlotConnection"]
+__all__ = ["start", "load_model", "show", "reset_zoom", "reset_rotation", "VibePlotConnection"]
 
 DEFAULT_PORT = 9753
 DEFAULT_HOST = "localhost"
@@ -193,3 +194,29 @@ def reset_rotation():
     if not _connection:
         raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.reset_rotation()
+
+
+def show():
+    """
+    Block until Ctrl+C or browser disconnects.
+
+    Similar to matplotlib.pyplot.show(), this keeps the script running
+    so the browser can interact with the visualization.
+
+    Example:
+        import vibeplot
+        vibeplot.start()
+        vibeplot.load_model(model_string)
+        vibeplot.show()  # Script stays running
+    """
+    if not _connection:
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
+
+    print("vibeplot: Press Ctrl+C to exit")
+    try:
+        while _connection.is_connected:
+            _connection._connected.wait(timeout=0.5)
+    except KeyboardInterrupt:
+        print("\nvibeplot: Shutting down")
+    finally:
+        _connection.close()
