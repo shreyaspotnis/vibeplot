@@ -38,7 +38,7 @@
             background: rgba(0, 0, 0, 0.6);
             padding: 10px;
             border-radius: 4px;
-            pointer-events: none;
+            cursor: pointer;
             white-space: pre;
             line-height: 1.6;
         }
@@ -53,7 +53,7 @@
             background: rgba(0, 0, 0, 0.4);
             padding: 6px 10px;
             border-radius: 4px;
-            pointer-events: none;
+            cursor: pointer;
         }
         #command-palette {
             display: none;
@@ -328,7 +328,7 @@
     <div class="container">
         <canvas id="canvas"></canvas>
         <div id="debug-panel"></div>
-        <div id="debug-hint">Press / for debug panel</div>
+        <div id="debug-hint">Tap or press / for debug panel</div>
         <div id="command-palette">
             <input type="text" id="command-input" placeholder="Type a command..." autocomplete="off" />
             <div id="command-list"></div>
@@ -660,6 +660,23 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         document.getElementById('error-message').addEventListener('click', () => {
             document.getElementById('error-message').classList.remove('visible');
         });
+
+        // Toggle debug panel on tap (for mobile)
+        function toggleDebugPanel() {
+            const panel = document.getElementById('debug-panel');
+            const hint = document.getElementById('debug-hint');
+            const panelDisplay = panel.style.display;
+            if (panelDisplay === 'none') {
+                panel.style.display = 'block';
+                hint.style.display = 'none';
+            } else {
+                panel.style.display = 'none';
+                hint.style.display = 'block';
+            }
+        }
+
+        document.getElementById('debug-panel').addEventListener('click', toggleDebugPanel);
+        document.getElementById('debug-hint').addEventListener('click', toggleDebugPanel);
 
         async function run() {
             if (!navigator.gpu) {
