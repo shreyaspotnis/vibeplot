@@ -58,6 +58,52 @@ pub fn reset_rotation() {
 }
 
 #[wasm_bindgen]
+pub fn get_rotation() -> js_sys::Float32Array {
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            let s = state.borrow();
+            let arr = js_sys::Float32Array::new_with_length(2);
+            arr.set_index(0, s.rotation_x);
+            arr.set_index(1, s.rotation_y);
+            arr
+        } else {
+            js_sys::Float32Array::new_with_length(2)
+        }
+    })
+}
+
+#[wasm_bindgen]
+pub fn set_rotation(x: f32, y: f32) {
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            let mut s = state.borrow_mut();
+            s.rotation_x = x;
+            s.rotation_y = y;
+        }
+    });
+}
+
+#[wasm_bindgen]
+pub fn get_zoom() -> f32 {
+    INTERACTION_STATE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map(|s| s.borrow().scale)
+            .unwrap_or(DEFAULT_SCALE)
+    })
+}
+
+#[wasm_bindgen]
+pub fn set_zoom(scale: f32) {
+    INTERACTION_STATE.with(|state| {
+        if let Some(state) = state.borrow().as_ref() {
+            state.borrow_mut().scale = scale;
+        }
+    });
+}
+
+#[wasm_bindgen]
 pub fn load_model(model_text: &str) -> Result<(), JsValue> {
     let (vertices, indices) = parse_model(model_text).map_err(|e| JsValue::from_str(&e))?;
 

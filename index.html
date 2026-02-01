@@ -32,7 +32,7 @@
         #debug-panel {
             display: none;
             position: absolute;
-            top: 10px;
+            top: 95px;
             left: 10px;
             color: #ccc;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -51,7 +51,7 @@
         }
         #debug-hint {
             position: absolute;
-            top: 10px;
+            top: 95px;
             left: 10px;
             color: #888;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -78,6 +78,126 @@
         #ws-status.connected {
             color: #4ec9b0;
             border-color: #2d6b5a;
+        }
+        /* Tab bar */
+        #tab-bar {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            height: 35px;
+            background: rgba(30, 30, 30, 0.95);
+            border-bottom: 1px solid #454545;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            overflow-x: auto;
+            z-index: 100;
+        }
+        #tab-bar::-webkit-scrollbar {
+            height: 3px;
+        }
+        #tab-bar::-webkit-scrollbar-thumb {
+            background: #454545;
+        }
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            height: 100%;
+            color: #888;
+            border-right: 1px solid #454545;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #ccc;
+        }
+        .tab.active {
+            background: rgba(37, 37, 38, 0.9);
+            color: #fff;
+            border-bottom: 2px solid #007acc;
+            margin-bottom: -1px;
+        }
+        .tab-name {
+            margin-right: 8px;
+        }
+        .tab-close {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s, background 0.15s;
+        }
+        .tab:hover .tab-close {
+            opacity: 0.7;
+        }
+        .tab-close:hover {
+            opacity: 1 !important;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .tab-add {
+            padding: 0 12px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            color: #888;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        .tab-add:hover {
+            color: #ccc;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        /* Add Figure dialog */
+        #add-figure-dialog {
+            display: none;
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            max-width: 90%;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+        }
+        #add-figure-dialog.visible {
+            display: block;
+        }
+        #add-figure-dialog label {
+            display: block;
+            padding: 12px 16px 8px;
+            color: #ccc;
+            font-size: 13px;
+        }
+        #figure-name-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #figure-name-input::placeholder {
+            color: #888;
+        }
+        #add-figure-hint {
+            padding: 8px 16px 12px;
+            color: #888;
+            font-size: 12px;
         }
         #debug-hint:hover {
             background: rgba(60, 60, 60, 0.95);
@@ -400,10 +520,18 @@
                 <div id="command-list"></div>
             </div>
         </div>
+        <div id="tab-bar">
+            <div class="tab-add" id="tab-add-btn" title="Add Figure (Cmd+T)">+</div>
+        </div>
         <div id="url-input-dialog">
             <label>Enter model URL:</label>
             <input type="text" id="url-input" placeholder="https://example.com/model.txt" autocomplete="off" />
             <div id="url-input-hint">Press Enter to load, Escape to cancel</div>
+        </div>
+        <div id="add-figure-dialog">
+            <label>Figure name:</label>
+            <input type="text" id="figure-name-input" placeholder="Figure 1" autocomplete="off" />
+            <div id="add-figure-hint">Press Enter to create, Escape to cancel</div>
         </div>
         <div id="error-message">
             <div class="error-title">Error loading model</div>
@@ -464,7 +592,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
     </div>
     <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
     <script type="module">
-        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model } from './pkg/vibeplot.js';
+        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model, get_rotation, set_rotation, get_zoom, set_zoom } from './pkg/vibeplot.js';
 
         // WebSocket connection to Python client
         let ws = null;
@@ -528,7 +656,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             try {
                 switch (msg.type) {
                     case 'load_model':
-                        load_model(msg.data);
+                        loadModelToActiveFigure(msg.data);
                         console.log('vibeplot: Model loaded from Python');
                         break;
                     case 'reset_zoom':
@@ -553,6 +681,138 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             }
         }
 
+        // Figure management
+        const figures = [];
+        let activeFigureIndex = -1;
+        let figureCounter = 0;
+
+        const DEFAULT_ROTATION_X = -0.5;
+        const DEFAULT_ROTATION_Y = 0.7;
+        const DEFAULT_ZOOM = 1.0;
+
+        function createFigure(name, modelText = null) {
+            const figure = {
+                id: ++figureCounter,
+                name: name || `Figure ${figureCounter}`,
+                modelText: modelText,
+                rotationX: DEFAULT_ROTATION_X,
+                rotationY: DEFAULT_ROTATION_Y,
+                zoom: DEFAULT_ZOOM
+            };
+            figures.push(figure);
+            return figures.length - 1;
+        }
+
+        function saveCurrentFigureState() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                const rotation = get_rotation();
+                figures[activeFigureIndex].rotationX = rotation[0];
+                figures[activeFigureIndex].rotationY = rotation[1];
+                figures[activeFigureIndex].zoom = get_zoom();
+            }
+        }
+
+        function restoreFigureState(index) {
+            if (index >= 0 && index < figures.length) {
+                const figure = figures[index];
+                set_rotation(figure.rotationX, figure.rotationY);
+                set_zoom(figure.zoom);
+            }
+        }
+
+        function loadFigureModel(index) {
+            if (index >= 0 && index < figures.length) {
+                const figure = figures[index];
+                if (figure.modelText) {
+                    load_model(figure.modelText);
+                } else {
+                    load_cube_model();
+                }
+            }
+        }
+
+        function switchToFigure(index) {
+            if (index < 0 || index >= figures.length || index === activeFigureIndex) {
+                return;
+            }
+            saveCurrentFigureState();
+            activeFigureIndex = index;
+            loadFigureModel(index);
+            restoreFigureState(index);
+            renderTabs();
+        }
+
+        function addFigure(name) {
+            saveCurrentFigureState();
+            const index = createFigure(name);
+            activeFigureIndex = index;
+            load_cube_model();
+            set_rotation(figures[index].rotationX, figures[index].rotationY);
+            set_zoom(figures[index].zoom);
+            renderTabs();
+        }
+
+        function closeFigure(index) {
+            if (figures.length <= 1) {
+                return;
+            }
+            figures.splice(index, 1);
+            if (activeFigureIndex >= figures.length) {
+                activeFigureIndex = figures.length - 1;
+            } else if (index < activeFigureIndex) {
+                activeFigureIndex--;
+            } else if (index === activeFigureIndex) {
+                loadFigureModel(activeFigureIndex);
+                restoreFigureState(activeFigureIndex);
+            }
+            renderTabs();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderTabs() {
+            const tabBar = document.getElementById('tab-bar');
+            const addBtn = document.getElementById('tab-add-btn');
+            const existingTabs = tabBar.querySelectorAll('.tab');
+            existingTabs.forEach(tab => tab.remove());
+
+            figures.forEach((figure, index) => {
+                const tab = document.createElement('div');
+                tab.className = `tab${index === activeFigureIndex ? ' active' : ''}`;
+                tab.dataset.index = index;
+                tab.innerHTML = `
+                    <span class="tab-name">${escapeHtml(figure.name)}</span>
+                    <span class="tab-close" title="Close">\u00d7</span>
+                `;
+                tabBar.insertBefore(tab, addBtn);
+            });
+        }
+
+        function loadModelToActiveFigure(modelText) {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = modelText;
+            }
+            load_model(modelText);
+        }
+
+        function showAddFigureDialog() {
+            const dialog = document.getElementById('add-figure-dialog');
+            const input = document.getElementById('figure-name-input');
+            dialog.classList.add('visible');
+            input.value = `Figure ${figureCounter + 1}`;
+            input.focus();
+            input.select();
+        }
+
+        function hideAddFigureDialog() {
+            const dialog = document.getElementById('add-figure-dialog');
+            dialog.classList.remove('visible');
+        }
+
         function loadModelFromFile() {
             const input = document.getElementById('model-file-input');
             input.onchange = (e) => {
@@ -561,7 +821,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                     const reader = new FileReader();
                     reader.onload = (event) => {
                         try {
-                            load_model(event.target.result);
+                            loadModelToActiveFigure(event.target.result);
                             console.log('Model loaded successfully');
                         } catch (err) {
                             showError('Failed to load model: ' + err);
@@ -604,7 +864,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 const text = await response.text();
-                load_model(text);
+                loadModelToActiveFigure(text);
                 console.log('Model loaded successfully from URL');
             } catch (err) {
                 showError(err.message);
@@ -657,7 +917,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 return;
             }
             try {
-                load_model(modelText);
+                loadModelToActiveFigure(modelText);
                 hideGenerateDialog();
                 console.log('Generated model loaded successfully');
             } catch (err) {
@@ -677,6 +937,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         });
 
         const commands = [
+            { id: 'add-figure', label: 'Add Figure', action: () => showAddFigureDialog() },
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
@@ -856,12 +1117,58 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         document.getElementById('debug-panel').addEventListener('click', toggleDebugPanel);
         document.getElementById('debug-hint').addEventListener('click', toggleDebugPanel);
 
+        // Tab bar event handlers
+        document.getElementById('tab-bar').addEventListener('click', (e) => {
+            const closeBtn = e.target.closest('.tab-close');
+            if (closeBtn) {
+                const tab = closeBtn.closest('.tab');
+                const index = parseInt(tab.dataset.index);
+                closeFigure(index);
+                return;
+            }
+            const tab = e.target.closest('.tab');
+            if (tab && !tab.classList.contains('tab-add')) {
+                const index = parseInt(tab.dataset.index);
+                switchToFigure(index);
+            }
+        });
+
+        document.getElementById('tab-add-btn').addEventListener('click', () => {
+            showAddFigureDialog();
+        });
+
+        // Add Figure dialog event handler
+        document.getElementById('figure-name-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideAddFigureDialog();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const name = e.target.value.trim();
+                if (name) {
+                    hideAddFigureDialog();
+                    addFigure(name);
+                }
+            }
+        });
+
+        // Cmd+T keyboard shortcut for adding figures
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
+                e.preventDefault();
+                showAddFigureDialog();
+            }
+        });
+
         async function run() {
             if (!navigator.gpu) {
                 alert('WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+.');
                 return;
             }
             await init();
+
+            // Initialize first figure
+            addFigure('Figure 1');
 
             // Start WebSocket connection to Python client after WASM is ready
             connectWebSocket();
