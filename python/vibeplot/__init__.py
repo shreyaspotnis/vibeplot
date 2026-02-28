@@ -21,10 +21,10 @@ except ImportError:
     raise ImportError("websockets package required. Install with: pip install websockets")
 
 __version__ = "0.1.0"
-__all__ = ["start", "load_model", "show", "reset_zoom", "reset_rotation", "VibePlotConnection"]
+__all__ = ["start", "load_model", "load_volume", "show", "reset_zoom", "reset_rotation", "VibePlotConnection"]
 
 DEFAULT_PORT = 9753
-DEFAULT_HOST = "localhost"
+DEFAULT_HOST = "0.0.0.0"
 
 
 class VibePlotConnection:
@@ -170,8 +170,12 @@ def start(
     _connection.start(open_browser=open_browser)
 
     if wait:
-        if not open_browser:
-            print("vibeplot: Waiting for browser... Open http://localhost:8000")
+        import socket
+        try:
+            lan_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            lan_ip = "localhost"
+        print(f"vibeplot: Open http://localhost:8000 (or http://{lan_ip}:8000 from another device)")
         connected = _connection.wait_for_connection(timeout=timeout)
         if not connected:
             raise TimeoutError("Timed out waiting for browser connection")
@@ -198,6 +202,66 @@ def reset_rotation():
     if not _connection:
         raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.reset_rotation()
+
+
+def load_volume(volume, level: float = 0.0):
+    """
+    Visualize a 3D scalar field by extracting and rendering its isosurface.
+
+    Uses the Marching Cubes algorithm to extract the isosurface at the given
+    threshold level and sends it to the connected browser. Vertices are colored
+    by their surface normal direction (X→red, Y→green, Z→blue), giving intuitive
+    orientation cues.
+
+    Args:
+        volume: 3D numpy array of scalar values, shape (Nx, Ny, Nz)
+        level:  Isosurface threshold value (default 0.0)
+
+    Requires:
+        numpy  (pip install numpy)
+
+    Example:
+        import numpy as np
+        import vibeplot
+
+        n = 40
+        t = np.linspace(-2, 2, n)
+        x, y, z = np.meshgrid(t, t, t, indexing='ij')
+        volume = x**2 + y**2 + z**2 - 1  # unit sphere
+        vibeplot.start()
+        vibeplot.load_volume(volume, level=0.0)
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        raise ImportError("numpy is required for load_volume(). Install with: pip install numpy")
+
+    from vibeplot.marching_cubes import march
+
+    positions, normals, faces = march(volume, level)
+
+    if not faces:
+        raise ValueError(
+            f"No isosurface found at level={level}. "
+            f"Volume range: [{volume.min():.3f}, {volume.max():.3f}]"
+        )
+
+    lines = ["# Volume isosurface"]
+    for pos, nrm in zip(positions, normals):
+        r = (nrm[0] + 1.0) / 2.0
+        g = (nrm[1] + 1.0) / 2.0
+        b = (nrm[2] + 1.0) / 2.0
+        lines.append(
+            f"vertex {pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f} "
+            f"{nrm[0]:.4f} {nrm[1]:.4f} {nrm[2]:.4f} "
+            f"{r:.3f} {g:.3f} {b:.3f}"
+        )
+    for f in faces:
+        lines.append(f"face {f[0]} {f[1]} {f[2]}")
+
+    if not _connection:
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
+    _connection.load_model("\n".join(lines))
 
 
 def show():

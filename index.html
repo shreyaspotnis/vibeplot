@@ -597,7 +597,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         // WebSocket connection to Python client
         let ws = null;
         let wsReconnectTimer = null;
-        const WS_URL = 'ws://localhost:9753';
+        const WS_URL = `ws://${window.location.hostname}:9753`;
         const WS_RECONNECT_DELAY = 2000;
 
         function connectWebSocket() {
