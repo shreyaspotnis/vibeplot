@@ -960,7 +960,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
         const _MC_EC=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
         const _MC_CO=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
         function _mcMarch(vol,nx,ny,nz,lv) {
-            const MAX=21000,pos=[],nrm=[],fcs=[];
+            const MAX=60000,pos=[],nrm=[],fcs=[];
             let vc=0;
             const vi=(x,y,z)=>x*ny*nz+y*nz+z, cl=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
             function grd(xi,yi,zi) {
@@ -1016,11 +1016,128 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             } catch(err){showError('Gyroid demo failed: '+err.message);}
         }
 
+        // ── Hydrogen atom orbitals ──────────────────────────────────────────────────
+        function _orbRadial(pqn,l,r){
+            const rho=2*r/pqn, base=Math.pow(rho,l)*Math.exp(-rho/2);
+            const p=pqn-l-1, k=2*l+1;
+            let lag;
+            if(p===0)lag=1;
+            else if(p===1)lag=(k+1)-rho;
+            else if(p===2)lag=(k+1)*(k+2)/2-(k+2)*rho+rho*rho/2;
+            else if(p===3)lag=(k+1)*(k+2)*(k+3)/6-(k+2)*(k+3)/2*rho+(k+3)/2*rho*rho-rho*rho*rho/6;
+            else lag=1;
+            return base*lag;
+        }
+        function _orbAngular(l,m,theta,phi){
+            const ct=Math.cos(theta),st=Math.sin(theta),cp=Math.cos(phi),sp=Math.sin(phi);
+            if(l===0)return 1;
+            if(l===1){if(m===0)return ct;if(m===1)return st*cp;if(m===-1)return st*sp;}
+            if(l===2){
+                if(m===0)return 3*ct*ct-1;
+                if(m===1)return st*ct*cp;if(m===-1)return st*ct*sp;
+                if(m===2)return st*st*Math.cos(2*phi);if(m===-2)return st*st*Math.sin(2*phi);
+            }
+            if(l===3){
+                const st2=st*st,ct2=ct*ct;
+                if(m===0)return ct*(5*ct2-3);
+                if(m===1)return st*(5*ct2-1)*cp;if(m===-1)return st*(5*ct2-1)*sp;
+                if(m===2)return st2*ct*Math.cos(2*phi);if(m===-2)return st2*ct*Math.sin(2*phi);
+                if(m===3)return st2*st*Math.cos(3*phi);if(m===-3)return st2*st*Math.sin(3*phi);
+            }
+            return 0;
+        }
+        function _orbPsi(pqn,l,m,x,y,z){
+            const r=Math.sqrt(x*x+y*y+z*z);
+            if(r<1e-10)return l===0?_orbRadial(pqn,0,1e-10):0;
+            return _orbRadial(pqn,l,r)*_orbAngular(l,m,Math.acos(Math.max(-1,Math.min(1,z/r))),Math.atan2(y,x));
+        }
+        function _loadOrbital(pqn,l,m,name){
+            const GN=30, ext=[0,6,13,22,32][pqn]||pqn*8;
+            const vol=new Float32Array(GN*GN*GN);
+            let mx=0;
+            for(let i=0;i<GN;i++)for(let j=0;j<GN;j++)for(let k=0;k<GN;k++){
+                const x=((i/(GN-1))-.5)*2*ext, y=((j/(GN-1))-.5)*2*ext, z=((k/(GN-1))-.5)*2*ext;
+                const v=_orbPsi(pqn,l,m,x,y,z);
+                vol[i*GN*GN+j*GN+k]=v; if(Math.abs(v)>mx)mx=Math.abs(v);
+            }
+            if(mx<1e-12){showError('Orbital is zero everywhere');return;}
+            const iso=mx*0.18;
+            const{pos:pP,nrm:nP,fcs:fP}=_mcMarch(vol,GN,GN,GN,iso);
+            const vN=new Float32Array(GN*GN*GN);
+            for(let i=0;i<vol.length;i++)vN[i]=-vol[i];
+            const{pos:pN,nrm:nN,fcs:fN}=_mcMarch(vN,GN,GN,GN,iso);
+            const lines=['# '+name+' orbital'];
+            for(let i=0;i<pP.length;i++){
+                const[px,py,pz]=pP[i],[nx,ny,nz]=nP[i];
+                lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' 1.000 0.440 0.160');
+            }
+            for(let i=0;i<pN.length;i++){
+                const[px,py,pz]=pN[i],[nx,ny,nz]=nN[i];
+                lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' 0.160 0.470 1.000');
+            }
+            const vc=pP.length;
+            for(const[a,b,c]of fP)lines.push('face '+a+' '+b+' '+c);
+            for(const[a,b,c]of fN)lines.push('face '+(a+vc)+' '+(b+vc)+' '+(c+vc));
+            loadModelToActiveFigure(lines.join('\n')); reset_rotation();
+        }
+        function showOrbitalDialog(){
+            const ex=document.getElementById('orbital-dlg'); if(ex)ex.remove();
+            const ov=document.createElement('div');
+            ov.id='orbital-dlg';
+            ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000';
+            const dlg=document.createElement('div');
+            dlg.style.cssText='background:#1e1e1e;border:1px solid #555;border-radius:8px;padding:20px;min-width:370px;max-width:500px;color:#ccc;font-family:monospace';
+            const h=document.createElement('h3'); h.textContent='Hydrogen Atom Orbitals';
+            h.style.cssText='margin:0 0 14px 0;color:#eee;font-size:15px'; dlg.appendChild(h);
+            const TABS=[
+                {lbl:'s',orbs:[{n:'1s',pqn:1,l:0,m:0},{n:'2s',pqn:2,l:0,m:0},{n:'3s',pqn:3,l:0,m:0},{n:'4s',pqn:4,l:0,m:0}]},
+                {lbl:'p',orbs:[
+                    {n:'2pz',pqn:2,l:1,m:0},{n:'2px',pqn:2,l:1,m:1},{n:'2py',pqn:2,l:1,m:-1},
+                    {n:'3pz',pqn:3,l:1,m:0},{n:'3px',pqn:3,l:1,m:1},{n:'3py',pqn:3,l:1,m:-1},
+                    {n:'4pz',pqn:4,l:1,m:0},{n:'4px',pqn:4,l:1,m:1},{n:'4py',pqn:4,l:1,m:-1}]},
+                {lbl:'d',orbs:[
+                    {n:'3d z\u00b2',pqn:3,l:2,m:0},{n:'3d xz',pqn:3,l:2,m:1},{n:'3d yz',pqn:3,l:2,m:-1},
+                    {n:'3d x\u00b2-y\u00b2',pqn:3,l:2,m:2},{n:'3d xy',pqn:3,l:2,m:-2},
+                    {n:'4d z\u00b2',pqn:4,l:2,m:0},{n:'4d xz',pqn:4,l:2,m:1},{n:'4d yz',pqn:4,l:2,m:-1},
+                    {n:'4d x\u00b2-y\u00b2',pqn:4,l:2,m:2},{n:'4d xy',pqn:4,l:2,m:-2}]},
+                {lbl:'f',orbs:[
+                    {n:'4f z\u00b3',pqn:4,l:3,m:0},{n:'4f xz\u00b2',pqn:4,l:3,m:1},{n:'4f yz\u00b2',pqn:4,l:3,m:-1},
+                    {n:'4f z(x\u00b2-y\u00b2)',pqn:4,l:3,m:2},{n:'4f xyz',pqn:4,l:3,m:-2},
+                    {n:'4f x(x\u00b2-3y\u00b2)',pqn:4,l:3,m:3},{n:'4f y(3x\u00b2-y\u00b2)',pqn:4,l:3,m:-3}]}
+            ];
+            const tabBar=document.createElement('div'); tabBar.style.cssText='display:flex;gap:4px;margin-bottom:10px';
+            const grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:5px';
+            function showTab(i){
+                Array.from(tabBar.children).forEach((b,j)=>{b.style.background=j===i?'#007acc':'#2d2d2d';});
+                grid.innerHTML='';
+                for(const orb of TABS[i].orbs){
+                    const b=document.createElement('button');
+                    b.textContent=orb.n;
+                    b.style.cssText='padding:7px 4px;background:#2d2d2d;border:1px solid #444;border-radius:4px;color:#ccc;cursor:pointer;font-size:11px;font-family:monospace';
+                    b.onmouseover=()=>b.style.background='#3d3d3d'; b.onmouseout=()=>b.style.background='#2d2d2d';
+                    b.onclick=()=>{ov.remove();_loadOrbital(orb.pqn,orb.l,orb.m,orb.n);};
+                    grid.appendChild(b);
+                }
+            }
+            TABS.forEach((t,i)=>{
+                const b=document.createElement('button'); b.textContent=t.lbl;
+                b.style.cssText='padding:7px 18px;border:1px solid #555;border-radius:4px;cursor:pointer;font-family:monospace;font-weight:bold;font-size:14px;color:#eee;background:#2d2d2d';
+                b.onclick=()=>showTab(i); tabBar.appendChild(b);
+            });
+            dlg.appendChild(tabBar); dlg.appendChild(grid);
+            const cb=document.createElement('button'); cb.textContent='Cancel';
+            cb.style.cssText='margin-top:12px;padding:6px 14px;background:#2d2d2d;border:1px solid #444;border-radius:4px;color:#aaa;cursor:pointer;font-family:monospace';
+            cb.onclick=()=>ov.remove(); dlg.appendChild(cb);
+            ov.appendChild(dlg); ov.onclick=e=>{if(e.target===ov)ov.remove();};
+            document.body.appendChild(ov); showTab(0);
+        }
+
         const commands = [
             { id: 'add-figure', label: 'Add Figure', action: () => showAddFigureDialog() },
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
+            { id: 'load-orbital', label: 'Load Orbital...', action: () => showOrbitalDialog() },
             { id: 'load-gyroid', label: 'Load Gyroid (Volume Demo)', action: () => loadGyroldDemo() },
             { id: 'load-cube', label: 'Load Cube Model', action: () => loadCubeToActiveFigure() },
             { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => loadPyramidToActiveFigure() },
