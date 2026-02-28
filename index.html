@@ -952,11 +952,76 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             }
         });
 
+        // ── Marching Cubes (Lorensen & Cline 1987) ─────────────────────────────────
+        // Tables encoded compactly: EDGE as 3-digit hex per entry, TRI as hex digits
+        // with 'x' marking -1 terminators, decoded at runtime.
+        const _MC_EDGE = '00010920330a40650f60570c80c905a0fb06c0ad03e09f0019009939329a59649f79569c99c895b9fa96d9ac93f99e9023033903313a63673f43553ca3cb3583f936e3af33c39d303a02a91a30aa7a66af5a54acbacaa59af8a6faaea3da9ca046056966376a06616f26536cc6cd65e6ff6686a963a69b605f04f97f36fa1f60ff3f52fcdfccf5fffef69fa8f3bf9af065075945355a25635f05515ce5cf55c5fd56a5ab538599507c06c95c34ca3c62cf1c50ccfccec5dcfcc6bcaac39c98c08c09c9ac3bcacc6dcfec5fcc0cc1c52cf3c64ca5c36c97c0950859b53a5ad56c5ff55e5c15c05535f25655a453759650af0bf98f39faef6fffcf5dfc2fc3f50ff1f66fa7f34f95f0b60a6996386af66e6fd65c6c36c26516f06676a663569460ca0da9ea3faa8a69afaa5bac4ac5a56af7a60aa1a32a93a0d30c39f33e3a93683fb35a3c53c43573f63613a033339230e90f99c93d9aa96b9f89599c69c79549f59629a393099190f00e09d03c0ab06a0f90580c70c60550f40630a203109000'.match(/.{3}/g).map(h=>parseInt(h,16));
+        const _MC_TRI = 'x083x019x183981x12ax08312ax92a029x2832a8a98x3b2x0b28b0x19023bx1b219b98bx3a1ba3x0a108a8bax3903b9ba9x98aa8bx478x430734x019847x419471731x12a847x34730412ax92a902847x2a9297273794x8473b2xb47b24204x90184723bx47b94b9b2921x3a13ba784x1ba14b1047b4x47890b9bab03x47b4b99bax954x954083x054150x854835315x12a954x30812a495x52a542402x2a5325354348x95423bx0b208b495x05401523bx21525828b485xa3ba13954x4950818a18bax54050b5bab03x54858aa8bx978579x930953573x078017157x153357x978957a12xa12950530573x802825857a52x2a5253357x7957893b2x95797292027bx23b018178157xb21b17715x958857a13a3bx5705097b010aba0xba0b03a50807570xba57b5xa65x0835a6x9015a6x1831985a6x165261x165126308x965906026x598582526328x23ba65xb08b20a65x01923b5a6x5a61929b298bx63b653513x08b0b50515b6x3b6036065059x65969bb98x5a6478x43047365ax1905a6847xa65197173794x612651478x125526304347x847905065026x739794329596269x3b2784a65x5a647242027bx01947823b5a6x9219b294b7b45a6x8473b53515b6x51b5b610b7b404bx059065036b63847x65969b4797b9xa4964ax4a649a083xa01a60640x83181686461ax149124264x308129249264x024426x832824426xa49a64b23x08228b49a4a6x3b201606461ax64161a48121b8b1x964936913b63x8b1810b61914641x3b6360064x648b68x7a678a89ax0730a709a67axa671a7178180xa67a71173x126168189867x269291679093739x780706602x732672x23ba68a89867x20727b09767a9a7x1801781a767a23bxb21b17a61671x896867916b63136x091b67x7807063b0b60x7b6x76bx308b76x019b76x819831b76xa126b7x12a3086b7x2902a96b7x6b72a3a83a98x723627x708760620x276237019x162186198876xa76a17137xa7617a187108x03707a0a96a7x76a7a88a9x684b86x36b306046x86b846901x946963931b36x6846b82a1x12a30b06b046x4b846b0292a9xa93a32943b36463x823842462x042462x190234246438x194142246x8138618466a1xa10a06604x4634386a3039a93xa946a4x49576bx083495b76x50154076bxb76834354315x954a1276bx6b712a083495x76b54a42a402x348354325a52b76x723762549x954086062687x362376150540x628687218485158x954a16176137x16a176107870954x40a4a503a6a737ax76a7a854a48ax6956b9b89x36b063056095x0b805b01556bx6b3635531x12a95b9b8b56x0b306b09656912axb85b56805a52025x6b36352a3a53x589528562382x956960062x158180568382628x156216x13616a386569896xa10a06950560x03856axa56xb5a75bxb5ab75830x5b75ab190xa75ab7981831xb12b71751x08312717572bx9759279022b7x75272b592328982x25a235375x820852875a25x9015a35373a2x982921872a25752x135375x087071175x903935537x987597x5845a8ab8x5045b05abb30x01984a8aba45xab4a45b34941314x2512852b8458x04b0b345b2b151bx0250592b5458b85x9452b3x25a352345384x5a2524420x3a235a385458019x5a2524192942x845853351x045105x845853905035x945x4b749b9abx0834979b79abx1ab1b414074bx3143481a474bab4x4b79b492b912x9749b791b2b1083xb74b42240xb74b42834324x29a279237749x9a7974a27870207x37a3a274a1a040ax1a2874x491417713x491417081871x403743x487x9a8ab8x30939bb9ax01a0a88abx31ab3ax12b1b99b8x30939b1292b9x02b80bx32bx23828aa89x9a2092x23828a0181a8x1a2x138918x091x038xx'.split('x').slice(0,256).map(s=>[...s].map(c=>parseInt(c,16)).concat([-1]));
+        const _MC_EC=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+        const _MC_CO=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+        function _mcMarch(vol,nx,ny,nz,lv) {
+            const MAX=21000,pos=[],nrm=[],fcs=[];
+            let vc=0;
+            const vi=(x,y,z)=>x*ny*nz+y*nz+z, cl=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+            function grd(xi,yi,zi) {
+                return [(vol[vi(cl(xi+1,0,nx-1),yi,zi)]-vol[vi(cl(xi-1,0,nx-1),yi,zi)])*.5,
+                        (vol[vi(xi,cl(yi+1,0,ny-1),zi)]-vol[vi(xi,cl(yi-1,0,ny-1),zi)])*.5,
+                        (vol[vi(xi,yi,cl(zi+1,0,nz-1))]-vol[vi(xi,yi,cl(zi-1,0,nz-1))])*.5];
+            }
+            for(let ix=0;ix<nx-1;ix++) for(let iy=0;iy<ny-1;iy++) for(let iz=0;iz<nz-1;iz++) {
+                let ci=0;
+                for(let n=0;n<8;n++){const[dx,dy,dz]=_MC_CO[n];if(vol[vi(ix+dx,iy+dy,iz+dz)]>lv)ci|=1<<n;}
+                if(ci===0||ci===255)continue;
+                const em=_MC_EDGE[ci];if(!em)continue;
+                const ev={};
+                for(let e=0;e<12;e++){
+                    if(!(em&(1<<e)))continue;
+                    const[c0,c1]=_MC_EC[e],[dx0,dy0,dz0]=_MC_CO[c0],[dx1,dy1,dz1]=_MC_CO[c1];
+                    const v0=vol[vi(ix+dx0,iy+dy0,iz+dz0)],v1=vol[vi(ix+dx1,iy+dy1,iz+dz1)];
+                    const dv=v1-v0,t=Math.abs(dv)>1e-9?Math.max(0,Math.min(1,(lv-v0)/dv)):.5;
+                    const px=((ix+dx0+t*(dx1-dx0))/(nx-1))*1.6-.8;
+                    const py=((iy+dy0+t*(dy1-dy0))/(ny-1))*1.6-.8;
+                    const pz=((iz+dz0+t*(dz1-dz0))/(nz-1))*1.6-.8;
+                    const g0=grd(ix+dx0,iy+dy0,iz+dz0),g1=grd(ix+dx1,iy+dy1,iz+dz1);
+                    let gnx=-(g0[0]+t*(g1[0]-g0[0])),gny=-(g0[1]+t*(g1[1]-g0[1])),gnz=-(g0[2]+t*(g1[2]-g0[2]));
+                    const mg=Math.sqrt(gnx*gnx+gny*gny+gnz*gnz);
+                    if(mg>1e-9){gnx/=mg;gny/=mg;gnz/=mg;}else{gnx=0;gny=1;gnz=0;}
+                    ev[e]=[[px,py,pz],[gnx,gny,gnz]];
+                }
+                const tl=_MC_TRI[ci];
+                for(let i=0;i<tl.length&&tl[i]!==-1;i+=3){
+                    if(fcs.length>=MAX)return{pos,nrm,fcs};
+                    const[p0,n0]=ev[tl[i]],[p1,n1]=ev[tl[i+1]],[p2,n2]=ev[tl[i+2]];
+                    pos.push(p0,p1,p2);nrm.push(n0,n1,n2);fcs.push([vc,vc+1,vc+2]);vc+=3;
+                }
+            }
+            return{pos,nrm,fcs};
+        }
+        function loadGyroldDemo() {
+            const n=25,p=2,vol=new Float32Array(n*n*n);
+            for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++){
+                const x=(i/(n-1))*2*Math.PI*p,y=(j/(n-1))*2*Math.PI*p,z=(k/(n-1))*2*Math.PI*p;
+                vol[i*n*n+j*n+k]=Math.sin(x)*Math.cos(y)+Math.sin(y)*Math.cos(z)+Math.sin(z)*Math.cos(x);
+            }
+            try {
+                const{pos,nrm,fcs}=_mcMarch(vol,n,n,n,0);
+                const lines=['# Gyroid volume demo'];
+                for(let i=0;i<pos.length;i++){
+                    const[px,py,pz]=pos[i],[nx,ny,nz]=nrm[i];
+                    lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' '+((nx+1)/2).toFixed(3)+' '+((ny+1)/2).toFixed(3)+' '+((nz+1)/2).toFixed(3));
+                }
+                for(const[a,b,c]of fcs)lines.push('face '+a+' '+b+' '+c);
+                loadModelToActiveFigure(lines.join('\n'));
+                reset_rotation();
+            } catch(err){showError('Gyroid demo failed: '+err.message);}
+        }
+
         const commands = [
             { id: 'add-figure', label: 'Add Figure', action: () => showAddFigureDialog() },
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
             { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
+            { id: 'load-gyroid', label: 'Load Gyroid (Volume Demo)', action: () => loadGyroldDemo() },
             { id: 'load-cube', label: 'Load Cube Model', action: () => loadCubeToActiveFigure() },
             { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => loadPyramidToActiveFigure() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
