@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vibeplot</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><polygon points='32,8 56,22 56,46 32,60 8,46 8,22' fill='%234a9eff'/><polygon points='32,8 56,22 32,36 8,22' fill='%2366b3ff'/><polygon points='8,22 32,36 32,60 8,46' fill='%23ff6b6b'/><polygon points='56,22 56,46 32,60 32,36' fill='%2351cf66'/></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a1a;
+        }
+        .container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #debug-panel {
+            display: none;
+            position: absolute;
+            top: 95px;
+            left: 10px;
+            color: #ccc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 12px;
+            background: rgba(37, 37, 38, 0.9);
+            border: 1px solid #454545;
+            padding: 10px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: pre;
+            line-height: 1.5;
+        }
+        #debug-panel:hover {
+            background: rgba(60, 60, 60, 0.95);
+            border-color: #666;
+        }
+        #debug-hint {
+            position: absolute;
+            top: 95px;
+            left: 10px;
+            color: #888;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 12px;
+            background: rgba(37, 37, 38, 0.9);
+            border: 1px solid #454545;
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        #ws-status {
+            display: none;
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: #888;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 11px;
+            background: rgba(37, 37, 38, 0.9);
+            border: 1px solid #454545;
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+        #ws-status.connected {
+            color: #4ec9b0;
+            border-color: #2d6b5a;
+        }
+        /* Tab bar */
+        #tab-bar {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            height: 35px;
+            background: rgba(30, 30, 30, 0.95);
+            border-bottom: 1px solid #454545;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            overflow-x: auto;
+            z-index: 100;
+        }
+        #tab-bar::-webkit-scrollbar {
+            height: 3px;
+        }
+        #tab-bar::-webkit-scrollbar-thumb {
+            background: #454545;
+        }
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            height: 100%;
+            color: #888;
+            border-right: 1px solid #454545;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #ccc;
+        }
+        .tab.active {
+            background: rgba(37, 37, 38, 0.9);
+            color: #fff;
+            border-bottom: 2px solid #007acc;
+            margin-bottom: -1px;
+        }
+        .tab-name {
+            margin-right: 8px;
+        }
+        .tab-close {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s, background 0.15s;
+        }
+        .tab:hover .tab-close {
+            opacity: 0.7;
+        }
+        .tab-close:hover {
+            opacity: 1 !important;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .tab-add {
+            padding: 0 12px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            color: #888;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        .tab-add:hover {
+            color: #ccc;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        /* Add Figure dialog */
+        #add-figure-dialog {
+            display: none;
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            max-width: 90%;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+        }
+        #add-figure-dialog.visible {
+            display: block;
+        }
+        #add-figure-dialog label {
+            display: block;
+            padding: 12px 16px 8px;
+            color: #ccc;
+            font-size: 13px;
+        }
+        #figure-name-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #figure-name-input::placeholder {
+            color: #888;
+        }
+        #add-figure-hint {
+            padding: 8px 16px 12px;
+            color: #888;
+            font-size: 12px;
+        }
+        #debug-hint:hover {
+            background: rgba(60, 60, 60, 0.95);
+            border-color: #666;
+        }
+        #command-palette {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            max-width: 90%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1000;
+        }
+        #command-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: rgba(37, 37, 38, 0.9);
+            border: 1px solid #454545;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        #command-trigger:hover {
+            background: rgba(60, 60, 60, 0.95);
+            border-color: #666;
+        }
+        #command-trigger.hidden {
+            display: none;
+        }
+        #command-trigger-text {
+            color: #888;
+            font-size: 13px;
+        }
+        #command-trigger-shortcut {
+            color: #666;
+            font-size: 11px;
+            padding: 2px 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        #command-dropdown {
+            display: none;
+            background: #252526;
+            border: 1px solid #007acc;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        #command-dropdown.visible {
+            display: block;
+        }
+        #command-input {
+            width: 100%;
+            padding: 8px 14px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 13px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #command-input::placeholder {
+            color: #888;
+        }
+        #command-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border-top: 1px solid #454545;
+        }
+        .command-item {
+            padding: 9px 14px;
+            color: #ccc;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .command-item:hover,
+        .command-item.selected {
+            background: #094771;
+            color: #fff;
+        }
+        .command-item .match {
+            color: #18a3ff;
+            font-weight: bold;
+        }
+        #url-input-dialog {
+            display: none;
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 500px;
+            max-width: 90%;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+        }
+        #url-input-dialog.visible {
+            display: block;
+        }
+        #url-input-dialog label {
+            display: block;
+            padding: 12px 16px 8px;
+            color: #ccc;
+            font-size: 13px;
+        }
+        #url-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: none;
+            background: #3c3c3c;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        #url-input::placeholder {
+            color: #888;
+        }
+        #url-input-hint {
+            padding: 8px 16px 12px;
+            color: #888;
+            font-size: 12px;
+        }
+        #error-message {
+            display: none;
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 90%;
+            background: #5a1d1d;
+            border: 1px solid #8b3a3a;
+            border-radius: 6px;
+            padding: 16px 20px;
+            color: #ff9999;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            z-index: 1002;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        #error-message.visible {
+            display: block;
+        }
+        #error-message .error-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #ffcccc;
+        }
+        #generate-model-dialog {
+            display: none;
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 700px;
+            max-width: 95%;
+            max-height: 90vh;
+            background: #252526;
+            border: 1px solid #454545;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            z-index: 1001;
+            overflow: hidden;
+            display: none;
+            flex-direction: column;
+        }
+        #generate-model-dialog.visible {
+            display: flex;
+        }
+        #generate-model-dialog .dialog-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #333;
+            border-bottom: 1px solid #454545;
+        }
+        #generate-model-dialog .dialog-title {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        #generate-model-dialog .close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+        #generate-model-dialog .close-btn:hover {
+            color: #fff;
+        }
+        #generate-model-dialog .dialog-content {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        #generate-model-dialog .section {
+            margin-bottom: 16px;
+        }
+        #generate-model-dialog .section-title {
+            color: #ccc;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        #generate-model-dialog .format-spec {
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d4d4d4;
+            white-space: pre-wrap;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        #generate-model-dialog .prompt-area {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            color: #d4d4d4;
+            resize: vertical;
+            outline: none;
+        }
+        #generate-model-dialog .prompt-area:focus {
+            border-color: #007acc;
+        }
+        #generate-model-dialog .model-output {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            background: #1e1e1e;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #d4d4d4;
+            resize: vertical;
+            outline: none;
+        }
+        #generate-model-dialog .model-output:focus {
+            border-color: #007acc;
+        }
+        #generate-model-dialog .button-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        #generate-model-dialog .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #generate-model-dialog .btn-primary {
+            background: #0e639c;
+            color: #fff;
+        }
+        #generate-model-dialog .btn-primary:hover {
+            background: #1177bb;
+        }
+        #generate-model-dialog .btn-secondary {
+            background: #3c3c3c;
+            color: #ccc;
+        }
+        #generate-model-dialog .btn-secondary:hover {
+            background: #4c4c4c;
+        }
+        #generate-model-dialog .hint {
+            color: #888;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        #generate-model-dialog .copy-feedback {
+            color: #4ec9b0;
+            font-size: 12px;
+            margin-left: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        #generate-model-dialog .copy-feedback.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <canvas id="canvas"></canvas>
+        <div id="debug-panel"></div>
+        <div id="ws-status">Python: disconnected</div>
+        <div id="debug-hint">Tap or press / for debug panel</div>
+        <div id="command-palette">
+            <div id="command-trigger">
+                <span id="command-trigger-text">Commands...</span>
+                <span id="command-trigger-shortcut">⌘⇧P</span>
+            </div>
+            <div id="command-dropdown">
+                <input type="text" id="command-input" placeholder="Search commands..." autocomplete="off" />
+                <div id="command-list"></div>
+            </div>
+        </div>
+        <div id="tab-bar">
+            <div class="tab-add" id="tab-add-btn" title="Add Figure (Cmd+T)">+</div>
+        </div>
+        <div id="url-input-dialog">
+            <label>Enter model URL:</label>
+            <input type="text" id="url-input" placeholder="https://example.com/model.txt" autocomplete="off" />
+            <div id="url-input-hint">Press Enter to load, Escape to cancel</div>
+        </div>
+        <div id="add-figure-dialog">
+            <label>Figure name:</label>
+            <input type="text" id="figure-name-input" placeholder="Figure 1" autocomplete="off" />
+            <div id="add-figure-hint">Press Enter to create, Escape to cancel</div>
+        </div>
+        <div id="error-message">
+            <div class="error-title">Error loading model</div>
+            <div id="error-text"></div>
+        </div>
+        <div id="generate-model-dialog">
+            <div class="dialog-header">
+                <span class="dialog-title">Generate Model with AI</span>
+                <button class="close-btn" id="generate-dialog-close">&times;</button>
+            </div>
+            <div class="dialog-content">
+                <div class="section">
+                    <div class="section-title">Model Format Specification</div>
+                    <div class="format-spec"># Model File Format
+# Lines starting with # are comments
+
+# Vertex format: vertex x y z nx ny nz r g b
+#   x y z = position
+#   nx ny nz = normal vector
+#   r g b = color (0.0 to 1.0)
+
+# Face format: face i0 i1 i2
+#   Three vertex indices (0-indexed)
+
+# Example: A colorful triangle
+vertex  0.0  0.5  0.0   0.0 0.0 1.0   1.0 0.0 0.0
+vertex -0.5 -0.5  0.0   0.0 0.0 1.0   0.0 1.0 0.0
+vertex  0.5 -0.5  0.0   0.0 0.0 1.0   0.0 0.0 1.0
+face 0 1 2</div>
+                </div>
+                <div class="section">
+                    <div class="section-title">Prompt for AI <span class="copy-feedback" id="copy-feedback">Copied!</span></div>
+                    <textarea class="prompt-area" id="generate-prompt">Generate a 3D model in the following format:
+
+- Each vertex line: vertex x y z nx ny nz r g b
+  (position, normal vector, RGB color 0-1)
+- Each face line: face i0 i1 i2
+  (three 0-indexed vertex indices, counter-clockwise winding)
+
+Create a [DESCRIBE YOUR MODEL HERE - e.g., "pyramid with a red base and yellow tip" or "low-poly sphere with rainbow colors"].
+
+Output only the model data, no explanations. Start with vertices, then faces.</textarea>
+                    <div class="button-row">
+                        <button class="btn btn-secondary" id="copy-prompt-btn">Copy Prompt</button>
+                    </div>
+                    <div class="hint">Copy this prompt, modify the description in brackets, and paste into your AI assistant.</div>
+                </div>
+                <div class="section">
+                    <div class="section-title">Paste Generated Model</div>
+                    <textarea class="model-output" id="generated-model-input" placeholder="Paste the AI-generated model here..."></textarea>
+                    <div class="button-row">
+                        <button class="btn btn-primary" id="load-generated-btn">Load Model</button>
+                        <button class="btn btn-secondary" id="clear-generated-btn">Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
+    <script type="module">
+        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model, get_rotation, set_rotation, get_zoom, set_zoom } from './pkg/vibeplot.js';
+
+        // WebSocket connection to Python client
+        let ws = null;
+        let wsReconnectTimer = null;
+        const WS_URL = `ws://${window.location.hostname}:9753`;
+        const WS_RECONNECT_DELAY = 2000;
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+
+            try {
+                ws = new WebSocket(WS_URL);
+
+                ws.onopen = () => {
+                    console.log('vibeplot: Connected to Python client');
+                    if (wsReconnectTimer) {
+                        clearInterval(wsReconnectTimer);
+                        wsReconnectTimer = null;
+                    }
+                    // Tell Python we're ready to receive messages
+                    ws.send(JSON.stringify({ type: 'ready' }));
+                    // Update status indicator
+                    const status = document.getElementById('ws-status');
+                    status.textContent = 'Python: connected';
+                    status.classList.add('connected');
+                    status.style.display = 'block';
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        handlePythonMessage(msg);
+                    } catch (e) {
+                        console.error('vibeplot: Failed to parse message:', e);
+                    }
+                };
+
+                ws.onclose = () => {
+                    ws = null;
+                    if (!wsReconnectTimer) {
+                        wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
+                    }
+                    // Update status indicator
+                    const status = document.getElementById('ws-status');
+                    status.textContent = 'Python: disconnected';
+                    status.classList.remove('connected');
+                };
+
+                ws.onerror = () => {
+                    ws = null;
+                };
+            } catch (e) {
+                // WebSocket constructor can throw
+            }
+        }
+
+        function handlePythonMessage(msg) {
+            let success = true;
+            let error = null;
+
+            try {
+                switch (msg.type) {
+                    case 'load_model':
+                        loadModelToActiveFigure(msg.data);
+                        console.log('vibeplot: Model loaded from Python');
+                        break;
+                    case 'reset_zoom':
+                        reset_zoom();
+                        break;
+                    case 'reset_rotation':
+                        reset_rotation();
+                        break;
+                    case 'ping':
+                        break;
+                    default:
+                        console.warn('vibeplot: Unknown message type:', msg.type);
+                }
+            } catch (e) {
+                success = false;
+                error = e.toString();
+                console.error('vibeplot: Error handling message:', e);
+            }
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ack', success, error }));
+            }
+        }
+
+        // Figure management
+        const figures = [];
+        let activeFigureIndex = -1;
+        let figureCounter = 0;
+
+        const DEFAULT_ROTATION_X = -0.5;
+        const DEFAULT_ROTATION_Y = 0.7;
+        const DEFAULT_ZOOM = 1.0;
+
+        function createFigure(name, modelText = null) {
+            const figure = {
+                id: ++figureCounter,
+                name: name || `Figure ${figureCounter}`,
+                modelText: modelText,
+                rotationX: DEFAULT_ROTATION_X,
+                rotationY: DEFAULT_ROTATION_Y,
+                zoom: DEFAULT_ZOOM
+            };
+            figures.push(figure);
+            return figures.length - 1;
+        }
+
+        function saveCurrentFigureState() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                const rotation = get_rotation();
+                figures[activeFigureIndex].rotationX = rotation[0];
+                figures[activeFigureIndex].rotationY = rotation[1];
+                figures[activeFigureIndex].zoom = get_zoom();
+            }
+        }
+
+        function restoreFigureState(index) {
+            if (index >= 0 && index < figures.length) {
+                const figure = figures[index];
+                set_rotation(figure.rotationX, figure.rotationY);
+                set_zoom(figure.zoom);
+            }
+        }
+
+        function loadFigureModel(index) {
+            if (index >= 0 && index < figures.length) {
+                const figure = figures[index];
+                if (figure.modelText === '__cube__' || !figure.modelText) {
+                    load_cube_model();
+                } else if (figure.modelText === '__pyramid__') {
+                    load_pyramid_model();
+                } else {
+                    load_model(figure.modelText);
+                }
+            }
+        }
+
+        function loadCubeToActiveFigure() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = '__cube__';
+            }
+            load_cube_model();
+        }
+
+        function loadPyramidToActiveFigure() {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = '__pyramid__';
+            }
+            load_pyramid_model();
+        }
+
+        function switchToFigure(index) {
+            if (index < 0 || index >= figures.length || index === activeFigureIndex) {
+                return;
+            }
+            saveCurrentFigureState();
+            activeFigureIndex = index;
+            loadFigureModel(index);
+            restoreFigureState(index);
+            renderTabs();
+        }
+
+        function addFigure(name) {
+            saveCurrentFigureState();
+            const index = createFigure(name);
+            activeFigureIndex = index;
+            load_cube_model();
+            set_rotation(figures[index].rotationX, figures[index].rotationY);
+            set_zoom(figures[index].zoom);
+            renderTabs();
+        }
+
+        function closeFigure(index) {
+            if (figures.length <= 1) {
+                return;
+            }
+            figures.splice(index, 1);
+            if (activeFigureIndex >= figures.length) {
+                activeFigureIndex = figures.length - 1;
+            } else if (index < activeFigureIndex) {
+                activeFigureIndex--;
+            } else if (index === activeFigureIndex) {
+                loadFigureModel(activeFigureIndex);
+                restoreFigureState(activeFigureIndex);
+            }
+            renderTabs();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderTabs() {
+            const tabBar = document.getElementById('tab-bar');
+            const addBtn = document.getElementById('tab-add-btn');
+            const existingTabs = tabBar.querySelectorAll('.tab');
+            existingTabs.forEach(tab => tab.remove());
+
+            figures.forEach((figure, index) => {
+                const tab = document.createElement('div');
+                tab.className = `tab${index === activeFigureIndex ? ' active' : ''}`;
+                tab.dataset.index = index;
+                tab.innerHTML = `
+                    <span class="tab-name">${escapeHtml(figure.name)}</span>
+                    <span class="tab-close" title="Close">\u00d7</span>
+                `;
+                tabBar.insertBefore(tab, addBtn);
+            });
+        }
+
+        function loadModelToActiveFigure(modelText) {
+            if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
+                figures[activeFigureIndex].modelText = modelText;
+            }
+            load_model(modelText);
+        }
+
+        function showAddFigureDialog() {
+            const dialog = document.getElementById('add-figure-dialog');
+            const input = document.getElementById('figure-name-input');
+            dialog.classList.add('visible');
+            input.value = `Figure ${figureCounter + 1}`;
+            input.focus();
+            input.select();
+        }
+
+        function hideAddFigureDialog() {
+            const dialog = document.getElementById('add-figure-dialog');
+            dialog.classList.remove('visible');
+        }
+
+        function loadModelFromFile() {
+            const input = document.getElementById('model-file-input');
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        try {
+                            loadModelToActiveFigure(event.target.result);
+                            console.log('Model loaded successfully');
+                        } catch (err) {
+                            showError('Failed to load model: ' + err);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+                input.value = ''; // Reset for next use
+            };
+            input.click();
+        }
+
+        function showUrlDialog() {
+            const dialog = document.getElementById('url-input-dialog');
+            const input = document.getElementById('url-input');
+            dialog.classList.add('visible');
+            input.value = '';
+            input.focus();
+        }
+
+        function hideUrlDialog() {
+            const dialog = document.getElementById('url-input-dialog');
+            dialog.classList.remove('visible');
+        }
+
+        function showError(message) {
+            const errorBox = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            errorText.textContent = message;
+            errorBox.classList.add('visible');
+            setTimeout(() => {
+                errorBox.classList.remove('visible');
+            }, 5000);
+        }
+
+        async function loadModelFromUrl(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const text = await response.text();
+                loadModelToActiveFigure(text);
+                console.log('Model loaded successfully from URL');
+            } catch (err) {
+                showError(err.message);
+            }
+        }
+
+        // URL input event handlers
+        document.getElementById('url-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideUrlDialog();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const url = e.target.value.trim();
+                if (url) {
+                    hideUrlDialog();
+                    loadModelFromUrl(url);
+                }
+            }
+        });
+
+        // Generate Model dialog functions
+        function showGenerateDialog() {
+            const dialog = document.getElementById('generate-model-dialog');
+            dialog.classList.add('visible');
+        }
+
+        function hideGenerateDialog() {
+            const dialog = document.getElementById('generate-model-dialog');
+            dialog.classList.remove('visible');
+        }
+
+        // Generate Model dialog event handlers
+        document.getElementById('generate-dialog-close').addEventListener('click', hideGenerateDialog);
+
+        document.getElementById('copy-prompt-btn').addEventListener('click', () => {
+            const prompt = document.getElementById('generate-prompt');
+            prompt.select();
+            navigator.clipboard.writeText(prompt.value).then(() => {
+                const feedback = document.getElementById('copy-feedback');
+                feedback.classList.add('visible');
+                setTimeout(() => feedback.classList.remove('visible'), 2000);
+            });
+        });
+
+        document.getElementById('load-generated-btn').addEventListener('click', () => {
+            const modelText = document.getElementById('generated-model-input').value.trim();
+            if (!modelText) {
+                showError('Please paste a model first');
+                return;
+            }
+            try {
+                loadModelToActiveFigure(modelText);
+                hideGenerateDialog();
+                console.log('Generated model loaded successfully');
+            } catch (err) {
+                showError('Failed to load model: ' + err);
+            }
+        });
+
+        document.getElementById('clear-generated-btn').addEventListener('click', () => {
+            document.getElementById('generated-model-input').value = '';
+        });
+
+        document.getElementById('generate-model-dialog').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideGenerateDialog();
+            }
+        });
+
+        // ── Marching Cubes (Lorensen & Cline 1987) ─────────────────────────────────
+        // Tables encoded compactly: EDGE as 3-digit hex per entry, TRI as hex digits
+        // with 'x' marking -1 terminators, decoded at runtime.
+        const _MC_EDGE = '00010920330a40650f60570c80c905a0fb06c0ad03e09f0019009939329a59649f79569c99c895b9fa96d9ac93f99e9023033903313a63673f43553ca3cb3583f936e3af33c39d303a02a91a30aa7a66af5a54acbacaa59af8a6faaea3da9ca046056966376a06616f26536cc6cd65e6ff6686a963a69b605f04f97f36fa1f60ff3f52fcdfccf5fffef69fa8f3bf9af065075945355a25635f05515ce5cf55c5fd56a5ab538599507c06c95c34ca3c62cf1c50ccfccec5dcfcc6bcaac39c98c08c09c9ac3bcacc6dcfec5fcc0cc1c52cf3c64ca5c36c97c0950859b53a5ad56c5ff55e5c15c05535f25655a453759650af0bf98f39faef6fffcf5dfc2fc3f50ff1f66fa7f34f95f0b60a6996386af66e6fd65c6c36c26516f06676a663569460ca0da9ea3faa8a69afaa5bac4ac5a56af7a60aa1a32a93a0d30c39f33e3a93683fb35a3c53c43573f63613a033339230e90f99c93d9aa96b9f89599c69c79549f59629a393099190f00e09d03c0ab06a0f90580c70c60550f40630a203109000'.match(/.{3}/g).map(h=>parseInt(h,16));
+        const _MC_TRI = 'x083x019x183981x12ax08312ax92a029x2832a8a98x3b2x0b28b0x19023bx1b219b98bx3a1ba3x0a108a8bax3903b9ba9x98aa8bx478x430734x019847x419471731x12a847x34730412ax92a902847x2a9297273794x8473b2xb47b24204x90184723bx47b94b9b2921x3a13ba784x1ba14b1047b4x47890b9bab03x47b4b99bax954x954083x054150x854835315x12a954x30812a495x52a542402x2a5325354348x95423bx0b208b495x05401523bx21525828b485xa3ba13954x4950818a18bax54050b5bab03x54858aa8bx978579x930953573x078017157x153357x978957a12xa12950530573x802825857a52x2a5253357x7957893b2x95797292027bx23b018178157xb21b17715x958857a13a3bx5705097b010aba0xba0b03a50807570xba57b5xa65x0835a6x9015a6x1831985a6x165261x165126308x965906026x598582526328x23ba65xb08b20a65x01923b5a6x5a61929b298bx63b653513x08b0b50515b6x3b6036065059x65969bb98x5a6478x43047365ax1905a6847xa65197173794x612651478x125526304347x847905065026x739794329596269x3b2784a65x5a647242027bx01947823b5a6x9219b294b7b45a6x8473b53515b6x51b5b610b7b404bx059065036b63847x65969b4797b9xa4964ax4a649a083xa01a60640x83181686461ax149124264x308129249264x024426x832824426xa49a64b23x08228b49a4a6x3b201606461ax64161a48121b8b1x964936913b63x8b1810b61914641x3b6360064x648b68x7a678a89ax0730a709a67axa671a7178180xa67a71173x126168189867x269291679093739x780706602x732672x23ba68a89867x20727b09767a9a7x1801781a767a23bxb21b17a61671x896867916b63136x091b67x7807063b0b60x7b6x76bx308b76x019b76x819831b76xa126b7x12a3086b7x2902a96b7x6b72a3a83a98x723627x708760620x276237019x162186198876xa76a17137xa7617a187108x03707a0a96a7x76a7a88a9x684b86x36b306046x86b846901x946963931b36x6846b82a1x12a30b06b046x4b846b0292a9xa93a32943b36463x823842462x042462x190234246438x194142246x8138618466a1xa10a06604x4634386a3039a93xa946a4x49576bx083495b76x50154076bxb76834354315x954a1276bx6b712a083495x76b54a42a402x348354325a52b76x723762549x954086062687x362376150540x628687218485158x954a16176137x16a176107870954x40a4a503a6a737ax76a7a854a48ax6956b9b89x36b063056095x0b805b01556bx6b3635531x12a95b9b8b56x0b306b09656912axb85b56805a52025x6b36352a3a53x589528562382x956960062x158180568382628x156216x13616a386569896xa10a06950560x03856axa56xb5a75bxb5ab75830x5b75ab190xa75ab7981831xb12b71751x08312717572bx9759279022b7x75272b592328982x25a235375x820852875a25x9015a35373a2x982921872a25752x135375x087071175x903935537x987597x5845a8ab8x5045b05abb30x01984a8aba45xab4a45b34941314x2512852b8458x04b0b345b2b151bx0250592b5458b85x9452b3x25a352345384x5a2524420x3a235a385458019x5a2524192942x845853351x045105x845853905035x945x4b749b9abx0834979b79abx1ab1b414074bx3143481a474bab4x4b79b492b912x9749b791b2b1083xb74b42240xb74b42834324x29a279237749x9a7974a27870207x37a3a274a1a040ax1a2874x491417713x491417081871x403743x487x9a8ab8x30939bb9ax01a0a88abx31ab3ax12b1b99b8x30939b1292b9x02b80bx32bx23828aa89x9a2092x23828a0181a8x1a2x138918x091x038xx'.split('x').slice(0,256).map(s=>[...s].map(c=>parseInt(c,16)).concat([-1]));
+        const _MC_EC=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+        const _MC_CO=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+        function _mcMarch(vol,nx,ny,nz,lv) {
+            const MAX=60000,pos=[],nrm=[],fcs=[];
+            let vc=0;
+            const vi=(x,y,z)=>x*ny*nz+y*nz+z, cl=(v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+            function grd(xi,yi,zi) {
+                return [(vol[vi(cl(xi+1,0,nx-1),yi,zi)]-vol[vi(cl(xi-1,0,nx-1),yi,zi)])*.5,
+                        (vol[vi(xi,cl(yi+1,0,ny-1),zi)]-vol[vi(xi,cl(yi-1,0,ny-1),zi)])*.5,
+                        (vol[vi(xi,yi,cl(zi+1,0,nz-1))]-vol[vi(xi,yi,cl(zi-1,0,nz-1))])*.5];
+            }
+            for(let ix=0;ix<nx-1;ix++) for(let iy=0;iy<ny-1;iy++) for(let iz=0;iz<nz-1;iz++) {
+                let ci=0;
+                for(let n=0;n<8;n++){const[dx,dy,dz]=_MC_CO[n];if(vol[vi(ix+dx,iy+dy,iz+dz)]>lv)ci|=1<<n;}
+                if(ci===0||ci===255)continue;
+                const em=_MC_EDGE[ci];if(!em)continue;
+                const ev={};
+                for(let e=0;e<12;e++){
+                    if(!(em&(1<<e)))continue;
+                    const[c0,c1]=_MC_EC[e],[dx0,dy0,dz0]=_MC_CO[c0],[dx1,dy1,dz1]=_MC_CO[c1];
+                    const v0=vol[vi(ix+dx0,iy+dy0,iz+dz0)],v1=vol[vi(ix+dx1,iy+dy1,iz+dz1)];
+                    const dv=v1-v0,t=Math.abs(dv)>1e-9?Math.max(0,Math.min(1,(lv-v0)/dv)):.5;
+                    const px=((ix+dx0+t*(dx1-dx0))/(nx-1))*1.6-.8;
+                    const py=((iy+dy0+t*(dy1-dy0))/(ny-1))*1.6-.8;
+                    const pz=((iz+dz0+t*(dz1-dz0))/(nz-1))*1.6-.8;
+                    const g0=grd(ix+dx0,iy+dy0,iz+dz0),g1=grd(ix+dx1,iy+dy1,iz+dz1);
+                    let gnx=-(g0[0]+t*(g1[0]-g0[0])),gny=-(g0[1]+t*(g1[1]-g0[1])),gnz=-(g0[2]+t*(g1[2]-g0[2]));
+                    const mg=Math.sqrt(gnx*gnx+gny*gny+gnz*gnz);
+                    if(mg>1e-9){gnx/=mg;gny/=mg;gnz/=mg;}else{gnx=0;gny=1;gnz=0;}
+                    ev[e]=[[px,py,pz],[gnx,gny,gnz]];
+                }
+                const tl=_MC_TRI[ci];
+                for(let i=0;i<tl.length&&tl[i]!==-1;i+=3){
+                    if(fcs.length>=MAX)return{pos,nrm,fcs};
+                    const[p0,n0]=ev[tl[i]],[p1,n1]=ev[tl[i+1]],[p2,n2]=ev[tl[i+2]];
+                    pos.push(p0,p1,p2);nrm.push(n0,n1,n2);fcs.push([vc,vc+1,vc+2]);vc+=3;
+                }
+            }
+            return{pos,nrm,fcs};
+        }
+        function loadGyroldDemo() {
+            const n=25,p=2,vol=new Float32Array(n*n*n);
+            for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++){
+                const x=(i/(n-1))*2*Math.PI*p,y=(j/(n-1))*2*Math.PI*p,z=(k/(n-1))*2*Math.PI*p;
+                vol[i*n*n+j*n+k]=Math.sin(x)*Math.cos(y)+Math.sin(y)*Math.cos(z)+Math.sin(z)*Math.cos(x);
+            }
+            try {
+                const{pos,nrm,fcs}=_mcMarch(vol,n,n,n,0);
+                const lines=['# Gyroid volume demo'];
+                for(let i=0;i<pos.length;i++){
+                    const[px,py,pz]=pos[i],[nx,ny,nz]=nrm[i];
+                    lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' '+((nx+1)/2).toFixed(3)+' '+((ny+1)/2).toFixed(3)+' '+((nz+1)/2).toFixed(3));
+                }
+                for(const[a,b,c]of fcs)lines.push('face '+a+' '+b+' '+c);
+                loadModelToActiveFigure(lines.join('\n'));
+                reset_rotation();
+            } catch(err){showError('Gyroid demo failed: '+err.message);}
+        }
+
+        // ── Hydrogen atom orbitals ──────────────────────────────────────────────────
+        function _orbRadial(pqn,l,r){
+            const rho=2*r/pqn, base=Math.pow(rho,l)*Math.exp(-rho/2);
+            const p=pqn-l-1, k=2*l+1;
+            let lag;
+            if(p===0)lag=1;
+            else if(p===1)lag=(k+1)-rho;
+            else if(p===2)lag=(k+1)*(k+2)/2-(k+2)*rho+rho*rho/2;
+            else if(p===3)lag=(k+1)*(k+2)*(k+3)/6-(k+2)*(k+3)/2*rho+(k+3)/2*rho*rho-rho*rho*rho/6;
+            else lag=1;
+            return base*lag;
+        }
+        function _orbAngular(l,m,theta,phi){
+            const ct=Math.cos(theta),st=Math.sin(theta),cp=Math.cos(phi),sp=Math.sin(phi);
+            if(l===0)return 1;
+            if(l===1){if(m===0)return ct;if(m===1)return st*cp;if(m===-1)return st*sp;}
+            if(l===2){
+                if(m===0)return 3*ct*ct-1;
+                if(m===1)return st*ct*cp;if(m===-1)return st*ct*sp;
+                if(m===2)return st*st*Math.cos(2*phi);if(m===-2)return st*st*Math.sin(2*phi);
+            }
+            if(l===3){
+                const st2=st*st,ct2=ct*ct;
+                if(m===0)return ct*(5*ct2-3);
+                if(m===1)return st*(5*ct2-1)*cp;if(m===-1)return st*(5*ct2-1)*sp;
+                if(m===2)return st2*ct*Math.cos(2*phi);if(m===-2)return st2*ct*Math.sin(2*phi);
+                if(m===3)return st2*st*Math.cos(3*phi);if(m===-3)return st2*st*Math.sin(3*phi);
+            }
+            return 0;
+        }
+        function _orbPsi(pqn,l,m,x,y,z){
+            const r=Math.sqrt(x*x+y*y+z*z);
+            if(r<1e-10)return l===0?_orbRadial(pqn,0,1e-10):0;
+            return _orbRadial(pqn,l,r)*_orbAngular(l,m,Math.acos(Math.max(-1,Math.min(1,z/r))),Math.atan2(y,x));
+        }
+        function _loadOrbital(pqn,l,m,name){
+            const GN=30, ext=[0,6,13,22,32][pqn]||pqn*8;
+            const vol=new Float32Array(GN*GN*GN);
+            let mx=0;
+            for(let i=0;i<GN;i++)for(let j=0;j<GN;j++)for(let k=0;k<GN;k++){
+                const x=((i/(GN-1))-.5)*2*ext, y=((j/(GN-1))-.5)*2*ext, z=((k/(GN-1))-.5)*2*ext;
+                const v=_orbPsi(pqn,l,m,x,y,z);
+                vol[i*GN*GN+j*GN+k]=v; if(Math.abs(v)>mx)mx=Math.abs(v);
+            }
+            if(mx<1e-12){showError('Orbital is zero everywhere');return;}
+            const iso=mx*0.18;
+            const{pos:pP,nrm:nP,fcs:fP}=_mcMarch(vol,GN,GN,GN,iso);
+            const vN=new Float32Array(GN*GN*GN);
+            for(let i=0;i<vol.length;i++)vN[i]=-vol[i];
+            const{pos:pN,nrm:nN,fcs:fN}=_mcMarch(vN,GN,GN,GN,iso);
+            const lines=['# '+name+' orbital'];
+            for(let i=0;i<pP.length;i++){
+                const[px,py,pz]=pP[i],[nx,ny,nz]=nP[i];
+                lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' 1.000 0.440 0.160');
+            }
+            for(let i=0;i<pN.length;i++){
+                const[px,py,pz]=pN[i],[nx,ny,nz]=nN[i];
+                lines.push('vertex '+px.toFixed(4)+' '+py.toFixed(4)+' '+pz.toFixed(4)+' '+nx.toFixed(4)+' '+ny.toFixed(4)+' '+nz.toFixed(4)+' 0.160 0.470 1.000');
+            }
+            const vc=pP.length;
+            for(const[a,b,c]of fP)lines.push('face '+a+' '+b+' '+c);
+            for(const[a,b,c]of fN)lines.push('face '+(a+vc)+' '+(b+vc)+' '+(c+vc));
+            loadModelToActiveFigure(lines.join('\n')); reset_rotation();
+        }
+        function showOrbitalDialog(){
+            const ex=document.getElementById('orbital-dlg'); if(ex)ex.remove();
+            const ov=document.createElement('div');
+            ov.id='orbital-dlg';
+            ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000';
+            const dlg=document.createElement('div');
+            dlg.style.cssText='background:#1e1e1e;border:1px solid #555;border-radius:8px;padding:20px;min-width:370px;max-width:500px;color:#ccc;font-family:monospace';
+            const h=document.createElement('h3'); h.textContent='Hydrogen Atom Orbitals';
+            h.style.cssText='margin:0 0 14px 0;color:#eee;font-size:15px'; dlg.appendChild(h);
+            const TABS=[
+                {lbl:'s',orbs:[{n:'1s',pqn:1,l:0,m:0},{n:'2s',pqn:2,l:0,m:0},{n:'3s',pqn:3,l:0,m:0},{n:'4s',pqn:4,l:0,m:0}]},
+                {lbl:'p',orbs:[
+                    {n:'2pz',pqn:2,l:1,m:0},{n:'2px',pqn:2,l:1,m:1},{n:'2py',pqn:2,l:1,m:-1},
+                    {n:'3pz',pqn:3,l:1,m:0},{n:'3px',pqn:3,l:1,m:1},{n:'3py',pqn:3,l:1,m:-1},
+                    {n:'4pz',pqn:4,l:1,m:0},{n:'4px',pqn:4,l:1,m:1},{n:'4py',pqn:4,l:1,m:-1}]},
+                {lbl:'d',orbs:[
+                    {n:'3d z\u00b2',pqn:3,l:2,m:0},{n:'3d xz',pqn:3,l:2,m:1},{n:'3d yz',pqn:3,l:2,m:-1},
+                    {n:'3d x\u00b2-y\u00b2',pqn:3,l:2,m:2},{n:'3d xy',pqn:3,l:2,m:-2},
+                    {n:'4d z\u00b2',pqn:4,l:2,m:0},{n:'4d xz',pqn:4,l:2,m:1},{n:'4d yz',pqn:4,l:2,m:-1},
+                    {n:'4d x\u00b2-y\u00b2',pqn:4,l:2,m:2},{n:'4d xy',pqn:4,l:2,m:-2}]},
+                {lbl:'f',orbs:[
+                    {n:'4f z\u00b3',pqn:4,l:3,m:0},{n:'4f xz\u00b2',pqn:4,l:3,m:1},{n:'4f yz\u00b2',pqn:4,l:3,m:-1},
+                    {n:'4f z(x\u00b2-y\u00b2)',pqn:4,l:3,m:2},{n:'4f xyz',pqn:4,l:3,m:-2},
+                    {n:'4f x(x\u00b2-3y\u00b2)',pqn:4,l:3,m:3},{n:'4f y(3x\u00b2-y\u00b2)',pqn:4,l:3,m:-3}]}
+            ];
+            const tabBar=document.createElement('div'); tabBar.style.cssText='display:flex;gap:4px;margin-bottom:10px';
+            const grid=document.createElement('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:5px';
+            function showTab(i){
+                Array.from(tabBar.children).forEach((b,j)=>{b.style.background=j===i?'#007acc':'#2d2d2d';});
+                grid.innerHTML='';
+                for(const orb of TABS[i].orbs){
+                    const b=document.createElement('button');
+                    b.textContent=orb.n;
+                    b.style.cssText='padding:7px 4px;background:#2d2d2d;border:1px solid #444;border-radius:4px;color:#ccc;cursor:pointer;font-size:11px;font-family:monospace';
+                    b.onmouseover=()=>b.style.background='#3d3d3d'; b.onmouseout=()=>b.style.background='#2d2d2d';
+                    b.onclick=()=>{ov.remove();_loadOrbital(orb.pqn,orb.l,orb.m,orb.n);};
+                    grid.appendChild(b);
+                }
+            }
+            TABS.forEach((t,i)=>{
+                const b=document.createElement('button'); b.textContent=t.lbl;
+                b.style.cssText='padding:7px 18px;border:1px solid #555;border-radius:4px;cursor:pointer;font-family:monospace;font-weight:bold;font-size:14px;color:#eee;background:#2d2d2d';
+                b.onclick=()=>showTab(i); tabBar.appendChild(b);
+            });
+            dlg.appendChild(tabBar); dlg.appendChild(grid);
+            const cb=document.createElement('button'); cb.textContent='Cancel';
+            cb.style.cssText='margin-top:12px;padding:6px 14px;background:#2d2d2d;border:1px solid #444;border-radius:4px;color:#aaa;cursor:pointer;font-family:monospace';
+            cb.onclick=()=>ov.remove(); dlg.appendChild(cb);
+            ov.appendChild(dlg); ov.onclick=e=>{if(e.target===ov)ov.remove();};
+            document.body.appendChild(ov); showTab(0);
+        }
+
+        const commands = [
+            { id: 'add-figure', label: 'Add Figure', action: () => showAddFigureDialog() },
+            { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
+            { id: 'load-model-disk', label: 'Load Model from disk', action: () => loadModelFromFile() },
+            { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
+            { id: 'load-orbital', label: 'Load Orbital...', action: () => showOrbitalDialog() },
+            { id: 'load-gyroid', label: 'Load Gyroid (Volume Demo)', action: () => loadGyroldDemo() },
+            { id: 'load-cube', label: 'Load Cube Model', action: () => loadCubeToActiveFigure() },
+            { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => loadPyramidToActiveFigure() },
+            { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },
+            { id: 'reset-rotation', label: 'Reset Rotation', action: () => reset_rotation() },
+        ];
+
+        let selectedIndex = 0;
+        let filteredCommands = [...commands];
+
+        function fuzzyMatch(text, query) {
+            const lowerText = text.toLowerCase();
+            const lowerQuery = query.toLowerCase();
+            let textIndex = 0;
+            let matchIndices = [];
+
+            for (let i = 0; i < lowerQuery.length; i++) {
+                const char = lowerQuery[i];
+                const foundIndex = lowerText.indexOf(char, textIndex);
+                if (foundIndex === -1) return null;
+                matchIndices.push(foundIndex);
+                textIndex = foundIndex + 1;
+            }
+            return matchIndices;
+        }
+
+        function highlightMatches(text, matchIndices) {
+            if (!matchIndices) return text;
+            let result = '';
+            let lastIndex = 0;
+            for (const idx of matchIndices) {
+                result += text.slice(lastIndex, idx);
+                result += `<span class="match">${text[idx]}</span>`;
+                lastIndex = idx + 1;
+            }
+            result += text.slice(lastIndex);
+            return result;
+        }
+
+        function renderCommands() {
+            const list = document.getElementById('command-list');
+            list.innerHTML = filteredCommands.map((cmd, i) => {
+                const query = document.getElementById('command-input').value;
+                const matchIndices = fuzzyMatch(cmd.label, query);
+                const highlighted = highlightMatches(cmd.label, matchIndices);
+                return `<div class="command-item${i === selectedIndex ? ' selected' : ''}" data-index="${i}">${highlighted}</div>`;
+            }).join('');
+        }
+
+        function filterCommands(query) {
+            if (!query) {
+                filteredCommands = [...commands];
+            } else {
+                filteredCommands = commands.filter(cmd => fuzzyMatch(cmd.label, query));
+            }
+            selectedIndex = 0;
+            renderCommands();
+        }
+
+        function showPalette() {
+            const trigger = document.getElementById('command-trigger');
+            const dropdown = document.getElementById('command-dropdown');
+            const input = document.getElementById('command-input');
+            trigger.classList.add('hidden');
+            dropdown.classList.add('visible');
+            input.value = '';
+            filterCommands('');
+            input.focus();
+        }
+
+        function hidePalette() {
+            const trigger = document.getElementById('command-trigger');
+            const dropdown = document.getElementById('command-dropdown');
+            trigger.classList.remove('hidden');
+            dropdown.classList.remove('visible');
+        }
+
+        function togglePalette() {
+            const dropdown = document.getElementById('command-dropdown');
+            if (dropdown.classList.contains('visible')) {
+                hidePalette();
+            } else {
+                showPalette();
+            }
+        }
+
+        function executeSelected() {
+            if (filteredCommands[selectedIndex]) {
+                filteredCommands[selectedIndex].action();
+                hidePalette();
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            const dropdown = document.getElementById('command-dropdown');
+            const urlDialog = document.getElementById('url-input-dialog');
+            const generateDialog = document.getElementById('generate-model-dialog');
+            const paletteVisible = dropdown.classList.contains('visible');
+            const urlDialogVisible = urlDialog.classList.contains('visible');
+            const generateDialogVisible = generateDialog.classList.contains('visible');
+
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+                e.preventDefault();
+                hideUrlDialog();
+                hideGenerateDialog();
+                togglePalette();
+                return;
+            }
+
+            // Other dialogs are handled by their own listeners
+            if (urlDialogVisible || generateDialogVisible) return;
+
+            if (!paletteVisible) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hidePalette();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedIndex = Math.min(selectedIndex + 1, filteredCommands.length - 1);
+                renderCommands();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedIndex = Math.max(selectedIndex - 1, 0);
+                renderCommands();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                executeSelected();
+            }
+        });
+
+        document.getElementById('command-input').addEventListener('input', (e) => {
+            filterCommands(e.target.value);
+        });
+
+        document.getElementById('command-trigger').addEventListener('click', () => {
+            togglePalette();
+        });
+
+        document.getElementById('command-list').addEventListener('click', (e) => {
+            const item = e.target.closest('.command-item');
+            if (item) {
+                selectedIndex = parseInt(item.dataset.index);
+                executeSelected();
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const palette = document.getElementById('command-palette');
+            const dropdown = document.getElementById('command-dropdown');
+            if (!palette.contains(e.target) && dropdown.classList.contains('visible')) {
+                hidePalette();
+            }
+        });
+
+        document.getElementById('error-message').addEventListener('click', () => {
+            document.getElementById('error-message').classList.remove('visible');
+        });
+
+        // Toggle debug panel on tap (for mobile)
+        function toggleDebugPanel() {
+            const panel = document.getElementById('debug-panel');
+            const hint = document.getElementById('debug-hint');
+            const panelDisplay = getComputedStyle(panel).display;
+            if (panelDisplay === 'none') {
+                panel.style.display = 'block';
+                hint.style.display = 'none';
+            } else {
+                panel.style.display = 'none';
+                hint.style.display = 'block';
+            }
+        }
+
+        document.getElementById('debug-panel').addEventListener('click', toggleDebugPanel);
+        document.getElementById('debug-hint').addEventListener('click', toggleDebugPanel);
+
+        // Tab bar event handlers
+        document.getElementById('tab-bar').addEventListener('click', (e) => {
+            const closeBtn = e.target.closest('.tab-close');
+            if (closeBtn) {
+                const tab = closeBtn.closest('.tab');
+                const index = parseInt(tab.dataset.index);
+                closeFigure(index);
+                return;
+            }
+            const tab = e.target.closest('.tab');
+            if (tab && !tab.classList.contains('tab-add')) {
+                const index = parseInt(tab.dataset.index);
+                switchToFigure(index);
+            }
+        });
+
+        document.getElementById('tab-add-btn').addEventListener('click', () => {
+            showAddFigureDialog();
+        });
+
+        // Add Figure dialog event handler
+        document.getElementById('figure-name-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideAddFigureDialog();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const name = e.target.value.trim();
+                if (name) {
+                    hideAddFigureDialog();
+                    addFigure(name);
+                }
+            }
+        });
+
+        // Cmd+T keyboard shortcut for adding figures
+        document.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
+                e.preventDefault();
+                showAddFigureDialog();
+            }
+        });
+
+        async function run() {
+            if (!navigator.gpu) {
+                alert('WebGPU is not supported in this browser. Please use Chrome 113+ or Edge 113+.');
+                return;
+            }
+            await init();
+
+            // Initialize first figure
+            addFigure('Figure 1');
+
+            // Start WebSocket connection to Python client after WASM is ready
+            connectWebSocket();
+            wsReconnectTimer = setInterval(connectWebSocket, WS_RECONNECT_DELAY);
+        }
+
+        run();
+    </script>
+</body>
+</html>
