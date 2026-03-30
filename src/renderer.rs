@@ -59,12 +59,12 @@ pub fn create_textures(
     (msaa_view, depth_view)
 }
 
-/// Create the main render pipeline and wireframe pipeline.
+/// Create the main render pipeline, transparent pipeline, and wireframe pipeline.
 pub fn create_pipelines(
     device: &wgpu::Device,
     surface_format: wgpu::TextureFormat,
     bind_group_layout: &wgpu::BindGroupLayout,
-) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+) -> (wgpu::RenderPipeline, wgpu::RenderPipeline, wgpu::RenderPipeline) {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -107,6 +107,52 @@ pub fn create_pipelines(
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24Plus,
             depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLE_COUNT,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    });
+
+    // Transparent variant: depth test reads but never writes, so back-to-front
+    // sorted alpha-blended geometry (voxels) composites correctly through itself.
+    let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Transparent Render Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[Vertex::desc()],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24Plus,
+            depth_write_enabled: false,   // ← key difference from opaque pipeline
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
@@ -164,7 +210,7 @@ pub fn create_pipelines(
         cache: None,
     });
 
-    (render_pipeline, wireframe_pipeline)
+    (render_pipeline, transparent_pipeline, wireframe_pipeline)
 }
 
 /// Create bind group layout and bind group for uniforms.
@@ -247,6 +293,7 @@ pub struct RenderContext {
     pub msaa_view: Rc<wgpu::TextureView>,
     pub depth_view: Rc<wgpu::TextureView>,
     pub render_pipeline: Rc<wgpu::RenderPipeline>,
+    pub transparent_pipeline: Rc<wgpu::RenderPipeline>,
     pub wireframe_pipeline: Rc<wgpu::RenderPipeline>,
     pub wireframe_buffer: Rc<wgpu::Buffer>,
     pub bind_group: Rc<wgpu::BindGroup>,
@@ -381,10 +428,14 @@ fn render_frame(ctx: &RenderContext, debug_panel: &web_sys::HtmlElement) {
             occlusion_query_set: None,
         });
 
-        render_pass.set_pipeline(&ctx.render_pipeline);
-        render_pass.set_bind_group(0, Some(&*ctx.bind_group), &[]);
-
         let model_res = ctx.model_resources.borrow();
+        let pipeline = if model_res.transparent_mode {
+            &ctx.transparent_pipeline
+        } else {
+            &ctx.render_pipeline
+        };
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_bind_group(0, Some(&*ctx.bind_group), &[]);
         render_pass.set_vertex_buffer(0, model_res.vertex_buffer.slice(..));
         render_pass.set_index_buffer(model_res.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..model_res.num_indices, 0, 0..1);

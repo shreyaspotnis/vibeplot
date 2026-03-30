@@ -72,6 +72,9 @@ pub struct ModelResources {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
+    /// When true the transparent pipeline is used (depth writes disabled),
+    /// enabling alpha-blended geometry to show through itself correctly.
+    pub transparent_mode: bool,
 }
 
 // Thread-local storage for global state access from wasm_bindgen exports
