@@ -5,11 +5,11 @@ use crate::vertex::Vertex;
 /// Parse a text-based model format into vertices and indices.
 ///
 /// Format:
-/// - `v x y z nx ny nz r g b` or `vertex ...` - Define a vertex with position, normal, color
+/// - `v x y z nx ny nz r g b [a]` or `vertex ...` - position, normal, rgb, optional alpha (default 1.0)
 /// - `f i0 i1 i2` or `face/tri/triangle ...` - Define a triangle face with vertex indices
 /// - Lines starting with `#` are comments
 pub fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
-    let mut raw_vertices: Vec<([f32; 3], [f32; 3], [f32; 3])> = Vec::new();
+    let mut raw_vertices: Vec<([f32; 3], [f32; 3], [f32; 4])> = Vec::new();
     let mut raw_faces: Vec<[u16; 3]> = Vec::new();
 
     for line in text.lines() {
@@ -38,10 +38,16 @@ pub fn parse_model(text: &str) -> Result<(Vec<Vertex>, Vec<u16>), String> {
                     parts[5].parse::<f32>().map_err(|e| e.to_string())?,
                     parts[6].parse::<f32>().map_err(|e| e.to_string())?,
                 ];
+                let alpha = if parts.len() >= 11 {
+                    parts[10].parse::<f32>().map_err(|e| e.to_string())?
+                } else {
+                    1.0
+                };
                 let color = [
                     parts[7].parse::<f32>().map_err(|e| e.to_string())?,
                     parts[8].parse::<f32>().map_err(|e| e.to_string())?,
                     parts[9].parse::<f32>().map_err(|e| e.to_string())?,
+                    alpha,
                 ];
                 raw_vertices.push((position, normal, color));
             }

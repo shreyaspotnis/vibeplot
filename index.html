@@ -1132,6 +1132,155 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             document.body.appendChild(ov); showTab(0);
         }
 
+        // ── Colormaps ────────────────────────────────────────────────────────────────
+        function _cmPlasma(t) {
+            t = Math.max(0, Math.min(1, t));
+            return [
+                Math.min(1, 0.05 + 2.0 * t),
+                Math.max(0, Math.min(1, 3.2 * t * (1 - t) - 0.05)),
+                Math.max(0, Math.min(1, 0.95 - 1.6 * t)),
+            ];
+        }
+        function _cmViridis(t) {
+            t = Math.max(0, Math.min(1, t));
+            return [
+                Math.max(0, Math.min(1, -0.37 + 2.63 * t - 1.65 * t * t)),
+                Math.max(0, Math.min(1, 0.14 + 1.1 * t - 0.3 * t * t)),
+                Math.max(0, Math.min(1, 0.55 - 0.5 * t)),
+            ];
+        }
+        function _cmHot(t) {
+            t = Math.max(0, Math.min(1, t));
+            return [Math.min(1, 3 * t), Math.max(0, Math.min(1, 3 * t - 1)), Math.max(0, 3 * t - 2)];
+        }
+        function _cmCool(t) {
+            t = Math.max(0, Math.min(1, t));
+            return [t, 1 - t, 1.0];
+        }
+        const _colormaps = { plasma: _cmPlasma, viridis: _cmViridis, hot: _cmHot, cool: _cmCool };
+
+        // ── Voxel volume renderer ────────────────────────────────────────────────────
+        // Renders a 3D scalar field as transparent voxel cubes, one per grid cell.
+        // vol:  Float32Array of length nx*ny*nz, index [ix*ny*nz + iy*nz + iz]
+        // Returns model text (vertex/face lines with per-vertex alpha).
+        // Voxels are sorted back-to-front by distance from origin so that
+        // alpha blending composites correctly for symmetric distributions.
+        function generateVoxels(vol, nx, ny, nz, opts) {
+            opts = opts || {};
+            const colormap   = opts.colormap   || 'plasma';
+            const threshold  = opts.threshold  !== undefined ? opts.threshold  : 0.05;
+            const alphaScale = opts.alphaScale !== undefined ? opts.alphaScale : 1.0;
+            const cmFn = _colormaps[colormap] || _cmPlasma;
+
+            // Normalise to [0,1]
+            let vmin = Infinity, vmax = -Infinity;
+            for (let i = 0; i < vol.length; i++) {
+                if (vol[i] < vmin) vmin = vol[i];
+                if (vol[i] > vmax) vmax = vol[i];
+            }
+            const vrange = (vmax - vmin) || 1;
+
+            // Half-extents with a tiny gap between voxels for visual clarity
+            const sx = 1.0 / nx, sy = 1.0 / ny, sz = 1.0 / nz;
+            const hx = sx * 0.48, hy = sy * 0.48, hz = sz * 0.48;
+
+            // Collect active voxels
+            const active = [];
+            for (let ix = 0; ix < nx; ix++) {
+                for (let iy = 0; iy < ny; iy++) {
+                    for (let iz = 0; iz < nz; iz++) {
+                        const t = (vol[ix * ny * nz + iy * nz + iz] - vmin) / vrange;
+                        if (t < threshold) continue;
+                        const cx = (ix + 0.5) * sx - 0.5;
+                        const cy = (iy + 0.5) * sy - 0.5;
+                        const cz = (iz + 0.5) * sz - 0.5;
+                        active.push({ t, cx, cy, cz, dist2: cx*cx + cy*cy + cz*cz });
+                    }
+                }
+            }
+            // Sort back-to-front (farthest drawn first) — rotation-invariant
+            active.sort((a, b) => b.dist2 - a.dist2);
+
+            // Face definitions: [normal, 4 corner offsets as ±1]
+            const FACES = [
+                { n: [0, 0, 1],  q: [[-1,-1, 1],[ 1,-1, 1],[ 1, 1, 1],[-1, 1, 1]] },
+                { n: [0, 0,-1],  q: [[ 1,-1,-1],[-1,-1,-1],[-1, 1,-1],[ 1, 1,-1]] },
+                { n: [1, 0, 0],  q: [[ 1,-1, 1],[ 1,-1,-1],[ 1, 1,-1],[ 1, 1, 1]] },
+                { n: [-1, 0, 0], q: [[-1,-1,-1],[-1,-1, 1],[-1, 1, 1],[-1, 1,-1]] },
+                { n: [0, 1, 0],  q: [[-1, 1, 1],[ 1, 1, 1],[ 1, 1,-1],[-1, 1,-1]] },
+                { n: [0,-1, 0],  q: [[-1,-1,-1],[ 1,-1,-1],[ 1,-1, 1],[-1,-1, 1]] },
+            ];
+
+            const MAXV = 64000; // u16 index limit safety margin
+            const vertLines = [`# Voxels ${nx}\u00d7${ny}\u00d7${nz}`];
+            const faceLines = [];
+            let vc = 0;
+
+            for (const { t, cx, cy, cz } of active) {
+                if (vc + 24 > MAXV) break;
+                const alpha = Math.min(t * alphaScale, 1.0);
+                const [r, g, b] = cmFn(t);
+                const rs = r.toFixed(3), gs = g.toFixed(3), bs = b.toFixed(3), as_ = alpha.toFixed(3);
+                for (const { n: [nx_, ny_, nz_], q } of FACES) {
+                    const base = vc;
+                    for (const [dx, dy, dz] of q) {
+                        const px = (cx + dx * hx).toFixed(4);
+                        const py = (cy + dy * hy).toFixed(4);
+                        const pz = (cz + dz * hz).toFixed(4);
+                        vertLines.push(`vertex ${px} ${py} ${pz} ${nx_} ${ny_} ${nz_} ${rs} ${gs} ${bs} ${as_}`);
+                        vc++;
+                    }
+                    faceLines.push(`face ${base} ${base+1} ${base+2}`);
+                    faceLines.push(`face ${base} ${base+2} ${base+3}`);
+                }
+            }
+            return vertLines.concat(faceLines).join('\n');
+        }
+
+        // ── Voxel demo scenes ────────────────────────────────────────────────────────
+        function loadVoxelGaussianDemo() {
+            const n = 18;
+            const vol = new Float32Array(n * n * n);
+            for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
+                const x = (i/(n-1) - 0.5)*4, y = (j/(n-1) - 0.5)*4, z = (k/(n-1) - 0.5)*4;
+                vol[i*n*n + j*n + k] = Math.exp(-(x*x + y*y + z*z));
+            }
+            try {
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'plasma', threshold: 0.04 }));
+                reset_rotation();
+            } catch(err) { showError('Voxel Gaussian demo failed: ' + err.message); }
+        }
+
+        function loadVoxelTwoBlobsDemo() {
+            const n = 18;
+            const vol = new Float32Array(n * n * n);
+            for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
+                const x = (i/(n-1) - 0.5)*5, y = (j/(n-1) - 0.5)*5, z = (k/(n-1) - 0.5)*5;
+                vol[i*n*n + j*n + k] =
+                    Math.exp(-((x-1.5)*(x-1.5) + y*y + z*z) / 1.2) +
+                    Math.exp(-((x+1.5)*(x+1.5) + y*y + z*z) / 1.2);
+            }
+            try {
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'hot', threshold: 0.06 }));
+                reset_rotation();
+            } catch(err) { showError('Voxel two-blobs demo failed: ' + err.message); }
+        }
+
+        function loadVoxelShellDemo() {
+            const n = 20;
+            const vol = new Float32Array(n * n * n);
+            for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
+                const x = (i/(n-1) - 0.5)*4, y = (j/(n-1) - 0.5)*4, z = (k/(n-1) - 0.5)*4;
+                const r = Math.sqrt(x*x + y*y + z*z);
+                // Thin spherical shell at r≈1.2, fading inward and outward
+                vol[i*n*n + j*n + k] = Math.exp(-((r - 1.2) * (r - 1.2)) / 0.08);
+            }
+            try {
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'cool', threshold: 0.1, alphaScale: 0.8 }));
+                reset_rotation();
+            } catch(err) { showError('Voxel shell demo failed: ' + err.message); }
+        }
+
         const commands = [
             { id: 'add-figure', label: 'Add Figure', action: () => showAddFigureDialog() },
             { id: 'generate-model', label: 'Generate Model', action: () => showGenerateDialog() },
@@ -1139,6 +1288,9 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             { id: 'load-model-url', label: 'Load Model from URL', action: () => showUrlDialog() },
             { id: 'load-orbital', label: 'Load Orbital...', action: () => showOrbitalDialog() },
             { id: 'load-gyroid', label: 'Load Gyroid (Volume Demo)', action: () => loadGyroldDemo() },
+            { id: 'load-voxels-gaussian', label: 'Load Voxels: Gaussian Blob', action: () => loadVoxelGaussianDemo() },
+            { id: 'load-voxels-two-blobs', label: 'Load Voxels: Two Blobs', action: () => loadVoxelTwoBlobsDemo() },
+            { id: 'load-voxels-shell', label: 'Load Voxels: Spherical Shell', action: () => loadVoxelShellDemo() },
             { id: 'load-cube', label: 'Load Cube Model', action: () => loadCubeToActiveFigure() },
             { id: 'load-pyramid', label: 'Load Pyramid Model', action: () => loadPyramidToActiveFigure() },
             { id: 'reset-zoom', label: 'Reset Zoom', action: () => reset_zoom() },

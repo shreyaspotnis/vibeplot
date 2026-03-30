@@ -21,7 +21,7 @@ var<uniform> uniforms: Uniforms;
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
-    @location(2) color: vec3<f32>,
+    @location(2) color: vec4<f32>,  // rgba — alpha drives transparency
     @location(3) face_id: u32,
 }
 
@@ -29,7 +29,7 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_normal: vec3<f32>,
     @location(1) world_position: vec3<f32>,
-    @location(2) color: vec3<f32>,
+    @location(2) color: vec4<f32>,  // rgba passed through from vertex
     @location(3) @interpolate(flat) face_id: u32,
 }
 
@@ -63,12 +63,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_dir = normalize(uniforms.light_dir.xyz);
     let view_dir = normalize(uniforms.camera_pos.xyz - in.world_position);
 
+    let rgb = in.color.rgb;
+
     // Ambient
-    let ambient = AMBIENT_STRENGTH * in.color;
+    let ambient = AMBIENT_STRENGTH * rgb;
 
     // Diffuse (Lambertian)
     let diff = max(dot(normal, light_dir), 0.0);
-    let diffuse = diff * in.color;
+    let diffuse = diff * rgb;
 
     // Specular (Blinn-Phong)
     let halfway_dir = normalize(light_dir + view_dir);
@@ -83,7 +85,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         result = result * HIGHLIGHT_BRIGHTNESS + HIGHLIGHT_BLUE_TINT;
     }
 
-    return vec4<f32>(result, 1.0);
+    return vec4<f32>(result, in.color.a);
 }
 
 // Wireframe shader for selected face outline
