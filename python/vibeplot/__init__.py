@@ -21,7 +21,7 @@ except ImportError:
     raise ImportError("websockets package required. Install with: pip install websockets")
 
 __version__ = "0.1.0"
-__all__ = ["start", "load_model", "load_volume", "show", "reset_zoom", "reset_rotation", "VibePlotConnection"]
+__all__ = ["start", "load_model", "load_volume", "load_voxels", "show", "reset_zoom", "reset_rotation", "VibePlotConnection"]
 
 DEFAULT_PORT = 9753
 DEFAULT_HOST = "0.0.0.0"
@@ -262,6 +262,142 @@ def load_volume(volume, level: float = 0.0):
     if not _connection:
         raise RuntimeError("Not started. Call vibeplot.start() first.")
     _connection.load_model("\n".join(lines))
+
+
+def load_voxels(volume, colormap: str = "plasma", threshold: float = 0.05,
+                alpha_scale: float = 1.0, max_voxels: int = 2000):
+    """
+    Visualize a 3D scalar field as semi-transparent voxel cubes.
+
+    Each grid cell is rendered as a small cube whose color and opacity are
+    determined by its normalized scalar value.  Voxels below ``threshold``
+    (in normalized units) are skipped entirely.  The remaining voxels are
+    sorted back-to-front by distance from the volume centre so that alpha
+    blending composites correctly when viewed from the default camera angle.
+
+    Args:
+        volume:     3-D numpy array of shape (nx, ny, nz).
+        colormap:   One of ``'plasma'``, ``'viridis'``, ``'hot'``, ``'cool'``
+                    (default ``'plasma'``).
+        threshold:  Minimum normalised value [0–1] to include (default 0.05).
+        alpha_scale: Overall opacity multiplier – reduce below 1.0 for more
+                    transparent voxels (default 1.0).
+        max_voxels: Hard cap on the number of rendered voxels to stay within
+                    the GPU vertex-buffer limit (default 2000).
+
+    Example::
+
+        import numpy as np
+        import vibeplot
+
+        n = 20
+        t = np.linspace(-2, 2, n)
+        x, y, z = np.meshgrid(t, t, t, indexing='ij')
+        vol = np.exp(-(x**2 + y**2 + z**2))   # 3-D Gaussian blob
+        vibeplot.start()
+        vibeplot.load_voxels(vol)
+        vibeplot.show()
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        raise ImportError("numpy is required for load_voxels(). pip install numpy")
+
+    volume = np.asarray(volume, dtype=float)
+    if volume.ndim != 3:
+        raise ValueError(f"volume must be 3-D, got shape {volume.shape}")
+
+    nx, ny, nz = volume.shape
+    vmin, vmax = float(volume.min()), float(volume.max())
+    vrange = vmax - vmin
+    if vrange < 1e-12:
+        raise ValueError("Volume has no variation (all values identical).")
+
+    norm = (volume - vmin) / vrange  # shape (nx, ny, nz), values in [0, 1]
+
+    # ── Colormap functions ────────────────────────────────────────────────────
+    def _plasma(t):
+        r = min(1.0, 0.05 + 2.0 * t)
+        g = max(0.0, min(1.0, 3.2 * t * (1 - t) - 0.05))
+        b = max(0.0, min(1.0, 0.95 - 1.6 * t))
+        return r, g, b
+
+    def _viridis(t):
+        r = max(0.0, min(1.0, -0.37 + 2.63 * t - 1.65 * t * t))
+        g = max(0.0, min(1.0,  0.14 + 1.10 * t - 0.30 * t * t))
+        b = max(0.0, min(1.0,  0.55 - 0.50 * t))
+        return r, g, b
+
+    def _hot(t):
+        return min(1.0, 3 * t), max(0.0, min(1.0, 3 * t - 1)), max(0.0, 3 * t - 2)
+
+    def _cool(t):
+        return t, 1.0 - t, 1.0
+
+    _cmaps = {"plasma": _plasma, "viridis": _viridis, "hot": _hot, "cool": _cool}
+    cmap_fn = _cmaps.get(colormap, _plasma)
+
+    # ── Collect active voxels, sort back-to-front ─────────────────────────────
+    sx, sy, sz = 1.0 / nx, 1.0 / ny, 1.0 / nz
+    hx, hy, hz = sx * 0.48, sy * 0.48, sz * 0.48
+
+    voxels = []
+    for ix in range(nx):
+        for iy in range(ny):
+            for iz in range(nz):
+                t = float(norm[ix, iy, iz])
+                if t < threshold:
+                    continue
+                cx = (ix + 0.5) * sx - 0.5
+                cy = (iy + 0.5) * sy - 0.5
+                cz = (iz + 0.5) * sz - 0.5
+                voxels.append((cx * cx + cy * cy + cz * cz, t, cx, cy, cz))
+
+    # Farthest first → correct back-to-front alpha blending
+    voxels.sort(key=lambda v: -v[0])
+
+    # ── Face definitions for a voxel cube ────────────────────────────────────
+    FACES = [
+        ((0, 0,  1), ((-1,-1, 1), ( 1,-1, 1), ( 1, 1, 1), (-1, 1, 1))),
+        ((0, 0, -1), (( 1,-1,-1), (-1,-1,-1), (-1, 1,-1), ( 1, 1,-1))),
+        (( 1, 0, 0), (( 1,-1, 1), ( 1,-1,-1), ( 1, 1,-1), ( 1, 1, 1))),
+        ((-1, 0, 0), ((-1,-1,-1), (-1,-1, 1), (-1, 1, 1), (-1, 1,-1))),
+        ((0,  1, 0), ((-1, 1, 1), ( 1, 1, 1), ( 1, 1,-1), (-1, 1,-1))),
+        ((0, -1, 0), ((-1,-1,-1), ( 1,-1,-1), ( 1,-1, 1), (-1,-1, 1))),
+    ]
+
+    # ── Build model text ──────────────────────────────────────────────────────
+    vert_lines = [f"# Voxels {nx}x{ny}x{nz} ({colormap})"]
+    face_lines = []
+    vc = 0
+
+    for count, (_, t, cx, cy, cz) in enumerate(voxels):
+        if count >= max_voxels or vc + 24 > 64000:
+            break
+        alpha = min(t * alpha_scale, 1.0)
+        r, g, b = cmap_fn(t)
+        for (fnx, fny, fnz), corners in FACES:
+            base = vc
+            for (dx, dy, dz) in corners:
+                px, py, pz = cx + dx * hx, cy + dy * hy, cz + dz * hz
+                vert_lines.append(
+                    f"vertex {px:.4f} {py:.4f} {pz:.4f} "
+                    f"{fnx} {fny} {fnz} "
+                    f"{r:.3f} {g:.3f} {b:.3f} {alpha:.3f}"
+                )
+                vc += 1
+            face_lines.append(f"face {base} {base+1} {base+2}")
+            face_lines.append(f"face {base} {base+2} {base+3}")
+
+    if not face_lines:
+        raise ValueError(
+            f"No voxels above threshold={threshold}. "
+            f"Try a lower threshold or check your volume data."
+        )
+
+    if not _connection:
+        raise RuntimeError("Not started. Call vibeplot.start() first.")
+    _connection.load_model("\n".join(vert_lines + face_lines))
 
 
 def show():
