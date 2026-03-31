@@ -162,6 +162,20 @@ pub fn load_pyramid_model() -> Result<(), JsValue> {
     load_model(PYRAMID_MODEL)
 }
 
+/// Enable or disable the transparent render pipeline.
+///
+/// When `true`, geometry is drawn with depth writes disabled so that
+/// back-to-front sorted transparent voxels composite correctly through each
+/// other.  Set to `false` for opaque models (cube, pyramid, isosurfaces).
+#[wasm_bindgen]
+pub fn set_transparent_mode(mode: bool) {
+    MODEL_RESOURCES.with(|model| {
+        if let Some(model) = model.borrow().as_ref() {
+            model.borrow_mut().transparent_mode = mode;
+        }
+    });
+}
+
 // ============================================================================
 // Application entry point
 // ============================================================================
@@ -210,7 +224,7 @@ pub async fn run() {
     let (msaa_view, depth_view) = renderer::create_textures(&device, width, height, surface_format);
     let uniform_buffer = renderer::create_uniform_buffer(&device);
     let (bind_group_layout, bind_group) = renderer::create_bind_group(&device, &uniform_buffer);
-    let (render_pipeline, wireframe_pipeline) =
+    let (render_pipeline, transparent_pipeline, wireframe_pipeline) =
         renderer::create_pipelines(&device, surface_format, &bind_group_layout);
     let wireframe_buffer = renderer::create_wireframe_buffer(&device);
 
@@ -223,6 +237,7 @@ pub async fn run() {
         vertex_buffer,
         index_buffer,
         num_indices: indices.len() as u32,
+        transparent_mode: false,
     }));
 
     MODEL_RESOURCES.with(|m| {
@@ -252,6 +267,7 @@ pub async fn run() {
         msaa_view: Rc::new(msaa_view),
         depth_view: Rc::new(depth_view),
         render_pipeline: Rc::new(render_pipeline),
+        transparent_pipeline: Rc::new(transparent_pipeline),
         wireframe_pipeline: Rc::new(wireframe_pipeline),
         wireframe_buffer: Rc::new(wireframe_buffer),
         bind_group: Rc::new(bind_group),

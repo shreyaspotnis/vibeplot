@@ -592,7 +592,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
     </div>
     <input type="file" id="model-file-input" accept=".txt,.model" style="display: none;" />
     <script type="module">
-        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model, get_rotation, set_rotation, get_zoom, set_zoom } from './pkg/vibeplot.js';
+        import init, { reset_zoom, reset_rotation, load_model, load_cube_model, load_pyramid_model, get_rotation, set_rotation, get_zoom, set_zoom, set_transparent_mode } from './pkg/vibeplot.js';
 
         // WebSocket connection to Python client
         let ws = null;
@@ -655,10 +655,12 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
 
             try {
                 switch (msg.type) {
-                    case 'load_model':
-                        loadModelToActiveFigure(msg.data);
+                    case 'load_model': {
+                        const isVoxels = msg.data.startsWith('# Voxels');
+                        loadModelToActiveFigure(msg.data, isVoxels);
                         console.log('vibeplot: Model loaded from Python');
                         break;
+                    }
                     case 'reset_zoom':
                         reset_zoom();
                         break;
@@ -697,7 +699,8 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 modelText: modelText,
                 rotationX: DEFAULT_ROTATION_X,
                 rotationY: DEFAULT_ROTATION_Y,
-                zoom: DEFAULT_ZOOM
+                zoom: DEFAULT_ZOOM,
+                transparent: false,
             };
             figures.push(figure);
             return figures.length - 1;
@@ -730,21 +733,26 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 } else {
                     load_model(figure.modelText);
                 }
+                set_transparent_mode(figure.transparent || false);
             }
         }
 
         function loadCubeToActiveFigure() {
             if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
                 figures[activeFigureIndex].modelText = '__cube__';
+                figures[activeFigureIndex].transparent = false;
             }
             load_cube_model();
+            set_transparent_mode(false);
         }
 
         function loadPyramidToActiveFigure() {
             if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
                 figures[activeFigureIndex].modelText = '__pyramid__';
+                figures[activeFigureIndex].transparent = false;
             }
             load_pyramid_model();
+            set_transparent_mode(false);
         }
 
         function switchToFigure(index) {
@@ -808,11 +816,13 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
             });
         }
 
-        function loadModelToActiveFigure(modelText) {
+        function loadModelToActiveFigure(modelText, transparent = false) {
             if (activeFigureIndex >= 0 && activeFigureIndex < figures.length) {
                 figures[activeFigureIndex].modelText = modelText;
+                figures[activeFigureIndex].transparent = transparent;
             }
             load_model(modelText);
+            set_transparent_mode(transparent);
         }
 
         function showAddFigureDialog() {
@@ -1246,7 +1256,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 vol[i*n*n + j*n + k] = Math.exp(-(x*x + y*y + z*z));
             }
             try {
-                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'plasma', threshold: 0.04 }));
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'plasma', threshold: 0.04 }), true);
                 reset_rotation();
             } catch(err) { showError('Voxel Gaussian demo failed: ' + err.message); }
         }
@@ -1261,7 +1271,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                     Math.exp(-((x+1.5)*(x+1.5) + y*y + z*z) / 1.2);
             }
             try {
-                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'hot', threshold: 0.06 }));
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'hot', threshold: 0.06 }), true);
                 reset_rotation();
             } catch(err) { showError('Voxel two-blobs demo failed: ' + err.message); }
         }
@@ -1276,7 +1286,7 @@ Output only the model data, no explanations. Start with vertices, then faces.</t
                 vol[i*n*n + j*n + k] = Math.exp(-((r - 1.2) * (r - 1.2)) / 0.08);
             }
             try {
-                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'cool', threshold: 0.1, alphaScale: 0.8 }));
+                loadModelToActiveFigure(generateVoxels(vol, n, n, n, { colormap: 'cool', threshold: 0.1, alphaScale: 0.8 }), true);
                 reset_rotation();
             } catch(err) { showError('Voxel shell demo failed: ' + err.message); }
         }
