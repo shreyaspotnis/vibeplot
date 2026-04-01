@@ -370,7 +370,8 @@ fn render_frame(ctx: &RenderContext, debug_panel: &web_sys::HtmlElement) {
     uniform_data.extend_from_slice(&mat4_to_array(model));
     uniform_data.extend_from_slice(&[light_dir[0], light_dir[1], light_dir[2], 0.0]);
     uniform_data.extend_from_slice(&[CAMERA_POSITION[0], CAMERA_POSITION[1], CAMERA_POSITION[2], 0.0]);
-    uniform_data.extend_from_slice(&[state.selected_face as f32, 0.0, 0.0, 0.0]);
+    let flat_color = if ctx.model_resources.borrow().transparent_mode { 1.0_f32 } else { 0.0 };
+    uniform_data.extend_from_slice(&[state.selected_face as f32, flat_color, 0.0, 0.0]);
 
     ctx.queue.write_buffer(&ctx.uniform_buffer, 0, bytemuck::cast_slice(&uniform_data));
 
