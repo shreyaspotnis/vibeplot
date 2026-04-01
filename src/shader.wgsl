@@ -12,7 +12,8 @@ struct Uniforms {
     model: mat4x4<f32>,
     light_dir: vec4<f32>,
     camera_pos: vec4<f32>,
-    selected_face: vec4<f32>, // x component is face id, -1 means none selected
+    // x: selected face id (-1 = none), y: flat_color flag (1.0 = skip lighting)
+    selected_face: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -59,6 +60,18 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let selected = i32(uniforms.selected_face.x);
+
+    // Flat-color mode: skip lighting (used for voxel/transparent models so
+    // all faces of a voxel appear at the same brightness).
+    if (uniforms.selected_face.y > 0.5) {
+        var flat = in.color.rgb;
+        if (selected >= 0 && u32(selected) == in.face_id) {
+            flat = flat * HIGHLIGHT_BRIGHTNESS + HIGHLIGHT_BLUE_TINT;
+        }
+        return vec4<f32>(flat, in.color.a);
+    }
+
     let normal = normalize(in.world_normal);
     let light_dir = normalize(uniforms.light_dir.xyz);
     let view_dir = normalize(uniforms.camera_pos.xyz - in.world_position);
@@ -80,7 +93,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var result = ambient + diffuse + specular;
 
     // Apply highlight if this face is selected
-    let selected = i32(uniforms.selected_face.x);
     if (selected >= 0 && u32(selected) == in.face_id) {
         result = result * HIGHLIGHT_BRIGHTNESS + HIGHLIGHT_BLUE_TINT;
     }
